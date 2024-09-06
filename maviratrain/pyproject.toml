@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools >= 61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["maviratrain"]
+
+[project]
+name = "maviratrain"
+version = "0.0.1"
+requires-python = ">= 3.11.6"
+authors = [
+  {name = "Danny Collinson", email = "dannycollinson12@gmail.com"}
+]
+maintainers = [
+  {name = "Danny Collinson", email = "dannycollinson12@gmail.com"}
+]
+description = "Package for training Mavira's AI fashion recommender"
+readme = "README.md"
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: GPU :: NVIDIA CUDA :: 12 :: 12.4",
+  "Intended Audience :: Developers",
+  "Natural Language :: English",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[project.urls]
+Homepage = "https://maviraai.com"
+Repository = "https://github.com/MaviraAI/FashionTraining"
+Issues = "https://github.com/MaviraAI/FashionTraining/issues"
