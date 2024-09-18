@@ -1,6 +1,5 @@
 """
-Utility functions for running quick tests in development.
-Modify as needed
+Utility functions for resetting/clearing logs, checkpoints, etc.
 """
 
 import os

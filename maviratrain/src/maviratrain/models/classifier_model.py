@@ -2,9 +2,9 @@
 
 from typing import Any, Union
 
-# import torch
-# import torch.nn as nn
-# import torch.nn.functional as F
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 from torchvision.models import VisionTransformer
 
 from maviratrain.utils.general import get_device

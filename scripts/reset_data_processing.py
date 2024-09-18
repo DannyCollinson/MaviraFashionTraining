@@ -1,6 +1,6 @@
 """Script to quickly reset tests. Modify as needed."""
 
-from maviratrain.utils.testing import (
+from maviratrain.utils.cleanup import (
     clear_data_processing_logs,
     reset_test,
     reset_test_resized,
