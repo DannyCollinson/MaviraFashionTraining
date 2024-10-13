@@ -3,50 +3,54 @@ Utility functions for resetting/clearing logs, checkpoints, etc.
 """
 
 import os
+from pathlib import Path
+
+from .general import get_logger
+
+# set up logger
+logger = get_logger("mt.utils.cleanup")
 
 
-def clear_data_processing_logs() -> None:
+def clean_up_intermediate_dataset(data_path: Path | str) -> None:
     """
-    Clears the logs for all data processing tasks
+    Deletes intermediate dataset directories
+    created during data processing.
+
+    Args:
+        data_path (str): path to the intermediate dataset directory
     """
-    os.system("rm logs/data_processing/subdir_cleaning*.log")
-    os.system("rm logs/data_processing/filename_cleaning*.log*")
-    os.system("rm logs/data_processing/data_name_cleaning*.log")
-    os.system("rm logs/data_processing/image_resizing*.log")
-    os.system("rm logs/data_processing/train_val_test*.log")
-    os.system("rm logs/data_processing/normalize_data*.log")
-    os.system("rm logs/data_processing/run_full_processing_pipeline*.log")
+    logger.set_log_filename("../logs/data_processing/data_processing.log")
+    logger.debug_("Deleting intermediate dataset at %s...", data_path)
+
+    # delete the intermediate dataset directory
+    os.system(f"rm -r {data_path}")
+
+    logger.debug_("Removed intermediate dataset!")
 
 
-def reset_test():
+def clean_up_checkpoint(checkpoint_path: Path | str) -> None:
     """
-    Resets the test/ directory to be a copy of the test_copy/ directory
+    Deletes the given checkpoint.
+
+    Args:
+        checkpoint_path (str): path to the checkpoint
     """
-    os.system("rm -r /workspaces/FashionTraining/data/classification_test")
-    os.system(
-        "cp -r /workspaces/FashionTraining/data/classification_test_copy"
-        "/workspaces/FashionTraining/data/classification_test"
-    )
+    logger.set_log_filename("../logs/train_runs/training.log")
+    logger.debug_("Deleting checkpoint at %s", checkpoint_path)
+
+    # delete the checkpoint
+    os.system(f"rm {checkpoint_path}")
 
 
-def reset_test_resized():
+def clean_up_checkpoints(checkpoint_dir: Path | str) -> None:
     """
-    Deletes the test-resized_224x224-YYYY-MM-DD/ directory
-    """
-    os.system(
-        "rm -r /workspaces/FashionTraining/data/"
-        "classification_test-resized_224x224-"
-        "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]"
-    )
+    Deletes all stale checkpoints in the given directory.
 
+    Args:
+        checkpoint_dir (str): path to the directory
+            containing checkpoints to be cleaned up
+    """
+    logger.set_log_filename("../logs/train_runs/training.log")
+    logger.debug_("Deleting stale checkpoints in %s", checkpoint_dir)
 
-def reset_test_resized_split():
-    """
-    Deletes the test-resized_224x224-YYYY-MM-DD-split-YYYY-MM-DD/ directory
-    """
-    os.system(
-        "rm -r /workspaces/FashionTraining/data/"
-        "classification_test-resized_224x224-"
-        "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]"
-        "-split-[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]"
-    )
+    # TODO

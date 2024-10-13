@@ -1,4 +1,4 @@
-"""A placeholder file for the tests directory"""
+""" A placeholder file for the tests directory. """
 
 
 def test_placeholder():

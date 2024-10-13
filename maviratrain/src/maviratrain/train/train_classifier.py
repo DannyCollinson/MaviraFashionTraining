@@ -1,51 +1,56 @@
-"""Defines training routines for Mavira's classifier models"""
+"""
+Module defining training routines for Mavira's classifier models.
+"""
 
 import time
-from typing import Callable, Sequence, Union
+from collections.abc import Callable
 
 import torch
 from torch import nn, no_grad, optim
 from torch.utils.data import DataLoader
 
-from maviratrain.utils.general import get_device, get_log_time
+from maviratrain.utils.general import get_device, get_time
 
 
 class Trainer:
-    """Trains a model given the necessary components"""
+    """Trains a model given the necessary components."""
 
     def __init__(
         self,
-        loaders: list[DataLoader],  # [train_loader, [test_loader]]
-        optimization: Sequence[  # [optimizer, [optimizer(s)], [scheduler(s)]]
-            Union[optim.Optimizer, optim.lr_scheduler.LRScheduler]
-        ],
+        # should be (train_loader, [val_loader]), i.e., val_loader is optional
+        loaders: tuple[DataLoader, DataLoader | None],
+        # should be [optimizer, [optimizer(s)], [scheduler(s)]]
+        # i.e., there must be at least one optimizer in the list,
+        # and any number of additional optimizers or LR schedulers is okay
+        optimization: list[optim.Optimizer | optim.lr_scheduler.LRScheduler],
         loss_fn: Callable,
     ) -> None:
         """
         Creates a Trainer object that can train a model
 
         Args:
-            loaders (list[DataLoader]): list of one or two PyTorch DataLoaders.
+            loaders (list[DataLoader]): list of one or two DataLoaders.
                 If only one, it is assumed to be the train loader.
                 If two, the first is assumed to be the train loader,
                 and the second will be used for validation
             optimization: (
                     list[
-                        Union[optim.Optimizer, optim.lr_scheduler.LRScheduler]
+                        optim.Optimizer | optim.lr_scheduler.LRScheduler
                     ]
-                ) list of at least one optimizer containing the model to be
-                    trained's parameters. Multiple optimizers may be passed if
-                    needed, as well as any number of learning rate schedulers
+                ) list of at least one optimizer containing
+                    the model to be trained's parameters.
+                    Multiple optimizers may be passed if needed,
+                    as well as any number of learning rate schedulers
             loss_fn (Callable): the loss function to be computed when
                 comparing model output to data labels
         """
         # first loader is assumed to be train_loader
         self.train_loader = loaders[0]
-        self.train_stats = [[], []]  # losses, accuracies
+        self.train_stats: list[list[float]] = [[], []]  # losses, accuracies
         # if there is a second loader, assume it is val_loader
         if len(loaders) > 1:
             self.val_loader = loaders[1]
-            self.val_stats = [[], []]  # losses, accuracies
+            self.val_stats: list[list[float]] = [[], []]  # losses, accuracies
         else:
             self.val_loader = None
 
@@ -63,14 +68,14 @@ class Trainer:
         self.loss_fn = loss_fn
 
     def train_one_epoch(
-        self, model: nn.Module, max_steps: Union[int, None] = None
+        self, model: nn.Module, max_steps: int | None = None
     ) -> tuple[float, float]:
         """
         Performs the training step for one epoch or for max_steps
 
         Args:
             model: (nn.Module) the PyTorch model to be trained
-            max_steps: (Union[int, None]) an optional number of steps to train
+            max_steps: (int | None) an optional number of steps to train
                 for before cutting off training.
                 Only has an effect if max_steps < len(self.train_loader)
 
@@ -100,7 +105,8 @@ class Trainer:
 
             fx = model(x)  # forward pass
 
-            y = y.to(device=get_device())  # make sure label on correct device
+            # make sure label on correct device
+            y = y.to(device=get_device())
 
             loss = self.loss_fn(fx, y)  # user-supplied loss function
             loss.backward()  # backward pass
@@ -114,7 +120,7 @@ class Trainer:
             accuracy += sum(torch.max(fx, dim=1)[1] == y)
 
             # if next step reaches max_steps, then stop training
-            if max_steps is not None and step == max_steps - 1:
+            if step == max_steps - 1:
                 break
 
             if step % 1000 == 999:
@@ -130,7 +136,8 @@ class Trainer:
 
     def validation(self, model: nn.Module) -> tuple[float, float]:
         """
-        Runs through the validation data once and returns the average loss
+        Runs through the validation data once
+        and returns the average loss
 
         Args:
             model: (nn.Module) the PyTorch model to evaluate
@@ -176,19 +183,20 @@ class Trainer:
     def train(
         self,
         model: nn.Module,
-        n_epochs: Union[int, None] = None,
-        n_steps: Union[int, None] = None,
+        n_epochs: int | None = None,
+        n_steps: int | None = None,
     ) -> tuple[nn.Module, int, int]:
         """
         Trains the model for n_epochs or n_steps
 
         Args:
             model: (nn.Module) the PyTorch model to train
-            n_epochs (Union[int, None]): number of epochs to train. None if
-                training based on steps. If n_epochs is not None, n_epochs
-                must be None. Defaults to None
-            n_steps (Union[int, None], optional): number of steps to train for
-                If n_steps is not None, n_epochs must be None. Defaults to None
+            n_epochs (int | None): number of epochs to train. None if
+                training based on steps. If n_epochs is not None,
+                then n_epochs must be None. Defaults to None
+            n_steps (int | None): number of steps to train for
+                If n_steps is not None, n_epochs must be None.
+                Defaults to None
 
         Returns:
             nn.Module: the trained model
@@ -218,7 +226,7 @@ class Trainer:
 
         # track best stats for model checkpointing
         best_val_loss = torch.inf
-        best_val_acc = 0
+        best_val_acc = 0.0
 
         try:  # except KeyboardInterrupt for stopping training
             while steps_left > 0:
@@ -238,7 +246,7 @@ class Trainer:
                         model_path = (
                             "/home/danny/mavira/FashionTraining/checkpoints/"
                             f"vit_E{cur_epoch}_S{n_steps - steps_left}_"
-                            f"L{best_val_loss}_T{get_log_time()}.pt"
+                            f"L{best_val_loss}_T{get_time()}.pt"
                         )
                         torch.save(model.state_dict(), model_path)
                     elif val_acc > best_val_acc:
@@ -246,7 +254,7 @@ class Trainer:
                         model_path = (
                             "/home/danny/mavira/FashionTraining/checkpoints/"
                             f"vit_E{cur_epoch}_S{n_steps - steps_left}_"
-                            f"A{best_val_acc}_T{get_log_time()}.pt"
+                            f"A{best_val_acc}_T{get_time()}.pt"
                         )
                         torch.save(model.state_dict(), model_path)
 
@@ -293,13 +301,14 @@ class Trainer:
                     f"Total Time: {time.time() - start_time:.2f}"
                 )
 
+                # TODO
                 # save model checkpoint if new best loss or accuracy
                 # if val_loss < best_val_loss:
                 #     best_val_loss = val_loss
                 #     model_path = (
                 #         "/home/danny/mavira/FashionTraining/checkpoints/"
                 #         f"vit_E{cur_epoch}_S{n_steps - steps_left}_"
-                #         f"L{best_val_loss:.2f}_T{get_log_time()[:-5]}.pt"
+                #         f"L{best_val_loss:.2f}_T{get_time()[:-5]}.pt"
                 #     )
                 #     torch.save(model.state_dict(), model_path)
                 # elif val_acc > best_val_acc:
@@ -307,7 +316,7 @@ class Trainer:
                 #     model_path = (
                 #         "/home/danny/mavira/FashionTraining/checkpoints/"
                 #         f"vit_E{cur_epoch}_S{n_steps - steps_left}_"
-                #         f"A{best_val_acc:.2f}_T{get_log_time()[:-5]}.pt"
+                #         f"A{best_val_acc:.2f}_T{get_time()[:-5]}.pt"
                 #     )
                 #     torch.save(model.state_dict(), model_path)
                 if val_acc > best_val_acc:
@@ -315,7 +324,7 @@ class Trainer:
                     model_path = (
                         "/home/danny/mavira/FashionTraining/checkpoints/"
                         f"vit_E{cur_epoch}_A{best_val_acc:.2f}-"
-                        f"{get_log_time()[:-5]}.pt"
+                        f"{get_time()[:-5]}.pt"
                     )
                     torch.save(model.state_dict(), model_path)
 

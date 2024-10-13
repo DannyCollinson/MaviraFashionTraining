@@ -1,318 +1,315 @@
 """
 Procedures for cleaning and processing data
-and generating train/val/test splits
+and generating train/val/test splits.
 """
 
 import os
 import random
+import re
 from pathlib import Path
-from typing import Union
 
 import torch
 from PIL import Image
-from torch import Tensor
-from torchvision.io import ImageReadMode, read_image
+from psycopg import connect
+from torchvision.io import ImageReadMode, decode_image
 from torchvision.transforms.v2 import InterpolationMode, Resize
 
 from ..utils.general import (
-    get_file_date,
-    get_log_time,
-    is_valid_directory,
+    get_data_processing_job_id,
+    get_logger,
+    get_postgres_connection_string,
+    is_valid_dataset,
+)
+from ..utils.registration.register_data import register_dataset
+
+# set up logger
+logger = get_logger(
+    "mt.data.data_processing",
+    # should be running from a notebook, hence the ../
+    log_filename="../logs/data_processing/data_processing.log",
+    rotation_params=(1000000, 1000),  # 1 MB, 1000 backups
 )
 
 
-def clean_subdirectories(data_path: Union[Path, str]) -> Path:
+def clean_subdirectories(data_path: Path | str) -> Path:
     """
     Renames subdirectories under data_path to remove '_files' suffix,
     making sure this would not cause duplicates
 
-    Arguments:
-        data_path {Union[Path, str]} -- path to top of data directory
+    Args:
+        data_path (Path | str): path to top of data directory to clean
 
     Raises:
-        FileExistsError: raised if removing '_files' suffix would
-            create duplicate subdirectory names
+        FileExistsError: if a rename would cause a duplicate
 
     Returns:
-        Path -- original data_path
+        Path: the original data_path
     """
-    assert is_valid_directory(data_path=data_path)  # check directory exists
+    logger.debug_("Cleaning subdirectory names at %s...", data_path)
 
-    with open(
-        "logs/data_processing/subdir_cleaning-" f"{get_log_time()}.log",
-        "w",
-        encoding="utf-8",
-    ) as log:
-        # log metadata
-        log.write(f"data_path: {data_path}\n")
+    assert is_valid_dataset(data_path=data_path, outside_logger=logger)
 
-        for cur_dir, sub_dirs, _ in os.walk(data_path):
-            for sub_dir in sub_dirs:
-                if "_files" in sub_dir:
-                    # check for duplicate creation
-                    if sub_dir.removesuffix("_files") in sub_dirs:
-                        message = (
-                            f"Renaming {sub_dir} would result "
-                            "in two directories named "
-                            f"{sub_dir.removesuffix('_files')}. "
-                            "This is not currently handled."
-                        )
-                        log.write(message + "\n")
-                        raise FileExistsError(message)
-
-                    subdir_path = os.path.join(cur_dir, sub_dir)
-                    os.rename(subdir_path, subdir_path.removesuffix("_files"))
-                    log.write(
-                        f"{subdir_path} is now "
-                        f"{subdir_path.removesuffix('_files')}\n"
+    for cur_dir, sub_dirs, _ in os.walk(data_path):
+        for sub_dir in sub_dirs:
+            if "_files" in sub_dir:
+                # check for duplicate creation
+                if sub_dir.removesuffix("_files") in sub_dirs:
+                    message = (
+                        f"Renaming {sub_dir} would result "
+                        "in two directories named "
+                        f"{sub_dir.removesuffix('_files')}. "
+                        f"Please change the name of {sub_dir} "
+                        "manually and rerun the script."
                     )
-        log.write("Done cleaning subdirectory names!\n")
-    print("Done cleaning subdirectory names!")
+                    logger.error_("%s", message)
+                    raise FileExistsError(message)
+
+                subdir_path = os.path.join(cur_dir, sub_dir)
+                os.rename(subdir_path, subdir_path.removesuffix("_files"))
+                # log directory name change
+                logger.debug_(
+                    "%s renamed to %s",
+                    subdir_path,
+                    subdir_path.removesuffix("_files"),
+                )
+    logger.debug_("Done cleaning subdirectory names!")
     return Path(data_path)
 
 
-def clean_filenames(data_path: Union[Path, str]) -> Path:
+def clean_filenames(data_path: Path | str) -> Path:
     """
     Renames raw data files to have consistent formatting: im#####.jpg
 
-    Arguments:
-        data_path {Union[Path, str]} -- path to data to rename
+    Args:
+        data_path (Path | str): path to top of data directory to clean
+
+    Raises:
+        ValueError: if filename is not of the expected form
 
     Returns:
-        Path -- original data_path
+        Path: the original data_path
     """
-    assert is_valid_directory(data_path=data_path)  # check directory exists
+    logger.debug_("Cleaning filenames at %s...", data_path)
 
-    with open(
-        "logs/data_processing/filename_cleaning-" f"{get_log_time()}.log",
-        "w",
-        encoding="utf-8",
-    ) as log:
-        # log metadata
-        log.write(f"data_path: {data_path}\n")
+    assert is_valid_dataset(data_path=data_path, outside_logger=logger)
 
-        for cur_dir, _, files in os.walk(data_path):
-            for index, filename in enumerate(files):
-                if "images" not in filename or (
-                    "jpg" not in filename and "png" not in filename
-                ):
-                    message = (
-                        f"Filename {filename} was not expected. "
-                        "Was expecting filename of the form "
-                        "images.jpg, images.png, images_###.jpg, "
-                        "images_###.png, images_####.jpg, or images_####.png"
-                    )
-                    log.write(message + "\n")
-                    raise ValueError(message)
+    for cur_dir, _, files in os.walk(data_path):
+        for index, filename in enumerate(files):
+            # check if filename has already been cleaned
+            if re.match(r"im\d{5}\.jpg", filename):
+                logger.debug_("%s already cleaned", filename)
+                continue
 
-                # define new filename with im#####.jpg scheme
-                new_filename = (
-                    "im" + "0" * (5 - len(str(index))) + str(index) + ".jpg"
+            if "images" not in filename or (
+                "jpg" not in filename and "png" not in filename
+            ):
+                message = (
+                    f"Filename {filename} was not expected. "
+                    "Was expecting filename of the form "
+                    "images.jpg, images.png, images_###.jpg, "
+                    "images_###.png, images_####.jpg, or images_####.png"
                 )
+                logger.error_("%s", message)
+                raise ValueError(message)
 
-                # handle special case of PNGs (RGB+Alpha ?) by loading as RGB,
-                # deleting PNG file, and resaving under a new JPG filename
-                if filename.split(".")[-1] == "png":
-                    imfile = Image.open(
-                        os.path.join(cur_dir, filename), formats=["PNG"]
-                    )
-                    im = imfile.convert("RGB")
-                    im.save(os.path.join(cur_dir, new_filename), format="JPEG")
-                    log.write(f"{filename} saved as {new_filename}\n")
-                    os.remove(os.path.join(cur_dir, filename))
-                    log.write(f"{filename} removed\n")
+            # define new filename with im#####.jpg scheme
+            new_filename = (
+                "im" + "0" * (5 - len(str(index))) + str(index) + ".jpg"
+            )
+
+            # handle special case of PNGs (RGB+Alpha ?) by loading as RGB,
+            # deleting PNG file, and resaving under a new JPG filename
+            if filename.split(".")[-1] == "png":
+                imfile = Image.open(
+                    os.path.join(cur_dir, filename), formats=["PNG"]
+                )
+                im = imfile.convert("RGB")
+                im.save(os.path.join(cur_dir, new_filename), format="JPEG")
+                logger.debug_("%s saved as %s", filename, new_filename)
+                os.remove(os.path.join(cur_dir, filename))
+                logger.debug_("%s removed", filename)
+            else:
                 # otherwise rename file with new filename
-                else:
-                    old_filepath = os.path.join(cur_dir, filename)
-                    new_filepath = os.path.join(cur_dir, new_filename)
-                    os.rename(old_filepath, new_filepath)
-                    log.write(f"{old_filepath} renamed as {new_filepath}\n")
-        log.write("Done cleaning filenames!\n")
-    print("Done cleaning filenames!")
+                old_filepath = os.path.join(cur_dir, filename)
+                new_filepath = os.path.join(cur_dir, new_filename)
+                os.rename(old_filepath, new_filepath)
+                logger.debug_("%s renamed as %s", old_filepath, new_filepath)
+    logger.debug_("Done cleaning filenames!")
     return Path(data_path)
 
 
-def clean_data_naming(data_path: Union[Path, str]) -> Path:
+def clean_data_naming(
+    data_path: Path | str, job_id: int | None = None
+) -> tuple[int, Path]:
     """
     Cleans the subdirectory names (remove '_files' suffix)
-    and filenames (format as 'im####.jpg)
 
-    Arguments:
-        data_path {Union[Path, str]} -- path to data directory
+    Args:
+        data_path (Path | str): path to top of data directory to clean
 
     Returns:
-        Path -- original data_path
+        Path: the original data_path
     """
-    assert is_valid_directory(data_path=data_path)  # check directory exists
+    logger.info_("Cleaning data naming at %s...", data_path)
 
-    with open(
-        "logs/data_processing/data_name_cleaning-" f"{get_log_time()}.log",
-        "w",
-        encoding="utf-8",
-    ) as log:
-        log.write(f"data_path: {data_path}\n")  # log metadata
-        log.write("Cleaning subdirectory names...\n")
-        clean_subdirectories(data_path=data_path)
-        log.writelines(
-            ["Done cleaning subdirectory names!\n", "Cleaning filenames...\n"]
-        )
-        clean_filenames(data_path=data_path)
-        log.writelines(["Done cleaning filenames!\n", "Done cleaning!\n"])
-    print("Done cleaning!")
-    return Path(data_path)
+    assert is_valid_dataset(data_path=data_path, outside_logger=logger)
+
+    clean_subdirectories(data_path=data_path)
+    clean_filenames(data_path=data_path)
+
+    # register the newly cleaned dataset to the database
+    dataset_id = register_dataset(
+        data_path=data_path, notes="Cleaned up naming"
+    )
+
+    logger.info_("Done cleaning data names!")
+    return dataset_id, Path(data_path)
 
 
 def resize_images(
-    data_path: Union[Path, str],
+    data_path: Path | str,
     size: tuple[int, int] = (224, 224),
     interpolation: str = "bilinear",
-    out_path: Union[Path, str, None] = None,
-) -> Path:
+    out_path: Path | str | None = None,
+) -> tuple[int, Path]:
     """
-    Generates resized versions of the images at data_path at the location
-    out_path of dimensions 'size'. If out_path is not specified, defaults
-    to data_path + '-r[job_id]'.
+    Resizes images in data_path to size and saves them in out_path
 
     Args:
-        data_path (Union[Path, str]): path to the original data
-        size (tuple[int, int], optional): (height, width) in pixels of resized
-            data. Defaults to (224, 224).
-        interpolation (str, optional): Torchvision InterpolationMode to use
-            for resizing images. Case insensitive. Defaults to 'bilinear'.
-        out_path (Union[Path, str, None], optional): path to place
-            resized data. Defaults to 'data_path-r[job_id]' if None.
+        data_path (Path | str): path to top of data directory to resize
+        size (tuple[int, int], optional): dimensions to resize
+            images to. Defaults to (224, 224).
+        interpolation (str, optional): torchvision interpolation mode to
+            use for resizing images. Defaults to "bilinear".
+        out_path (Path | str | None, optional): path to save resized
+            images out to. Defaults to None.
+
+    Raises:
+        NotImplementedError: if out_path already exists
+        ValueError: if interpolation mode is not supported
 
     Returns:
-        Path: the output path out_path
+        tuple[int, Path]: the dataset ID and the path to the resized data
     """
-    assert is_valid_directory(data_path=data_path)  # check directory exists
-
-    # TODO
     # specify default out_path if not given
-    if out_path is None:
-        out_path = Path(
-            str(data_path).removesuffix("/")
-            + "-resized_"
-            + str(size[0])
-            + "x"
-            + str(size[1])
-            + "-"
-            + get_file_date()
-        )
+    job_id = get_data_processing_job_id()
+    out_path = Path(str(data_path).removesuffix("/") + "-r" + str(job_id))
 
-    # TODO
+    logger.info_(
+        "Resizing images at %s to size %s and saving at %s...",
+        data_path,
+        size,
+        out_path,
+    )
+
+    assert is_valid_dataset(data_path=data_path, outside_logger=logger)
+
     # make sure destination doesn't already exist to avoid issues
-    # see below for how we may handle this in the future
     if os.path.exists(out_path):
-        raise NotImplementedError(
+        message = (
             f"Destination subdirectory {out_path} "
             "already exists, which is currently not handled"
         )
+        logger.error_("%s", message)
+        raise NotImplementedError(message)
+
     os.mkdir(out_path)
+    logger.debug_("Created output directory %s", out_path)
 
     # get the correct interpolation mode
-    interpolation = interpolation.lower()  # for case insensitivity
+    interpolation = interpolation.upper()  # for case insensitivity
     interpolation_mode = InterpolationMode.BILINEAR
-    if interpolation == "bilinear":
+    if interpolation == "BILINEAR":
         interpolation_mode = InterpolationMode.BILINEAR
-    elif interpolation == "bicubic":
+    elif interpolation == "BICUBIC":
         interpolation_mode = InterpolationMode.BICUBIC
-    elif interpolation == "nearest":
+    elif interpolation == "NEAREST":
         interpolation_mode = InterpolationMode.NEAREST
-    elif interpolation == "nearest_exact":
+    elif interpolation == "NEAREST_EXACT":
         interpolation_mode = InterpolationMode.NEAREST_EXACT
     else:
-        raise ValueError(
+        message = (
             f"Provided interpolation mode '{interpolation}' is not supported. "
-            "Supported Torchvision InterpolationModes include BILINEAR, "
-            "BICUBIC, NEAREST, and NEAREST_EXACT."
+            "Supported Torchvision InterpolationModes include "
+            "BILINEAR, BICUBIC, NEAREST, and NEAREST_EXACT."
         )
+        logger.error_("%s", message)
+        raise ValueError(message)
 
     # define transformation
     resize = Resize(
         size=size, interpolation=interpolation_mode, antialias=True
     )
 
-    with open(
-        "logs/data_processing/image_resizing-" f"{get_log_time()}.log",
-        "w",
-        encoding="utf-8",
-    ) as log:
-        # log metadata
-        log.write(f"data_path: {data_path}\n")
-        log.write(f"size: {size}\n")
-        log.write(f"out_path: {out_path}\n")
-        # log previous actions
-        log.write(f"Created output directory {out_path}\n")
+    for cur_dir, sub_dirs, files in os.walk(data_path):
+        # replicate the data_path subdirectory structure
+        for sub_dir in sub_dirs:
+            destination_subdir = os.path.join(out_path, sub_dir)
+            os.mkdir(destination_subdir)
+            logger.debug_("Created destination %s", destination_subdir)
 
-        for cur_dir, sub_dirs, files in os.walk(data_path):
-            # replicate the data_path subdirectory structure
-            for sub_dir in sub_dirs:
-                destination_subdir = os.path.join(out_path, sub_dir)
-                # TODO
-                # make sure destination doesn't already exist to avoid issues
-                if os.path.exists(destination_subdir):
-                    raise NotImplementedError(
-                        f"Destination subdirectory {destination_subdir} "
-                        "already exists, which is currently not handled"
-                    )
-                os.mkdir(destination_subdir)
-                log.write(f"Created destination {destination_subdir}\n")
-                # can possibly do it more like this in the future
-                # try:
-                #     os.mkdir(destination_subdir)
-                #     log.write(f"Created destination {destination_subdir}\n")
-                # except FileExistsError:
-                #     log.write(
-                #         f"Destination {destination_subdir} "
-                #         "already exists, reusing it\n"
-                #     )
-            # resize each file and place in out_path/sub_dir/fname.pt
-            for filename in files:
-                filepath = os.path.join(cur_dir, filename)
-                im = read_image(filepath, mode=ImageReadMode.RGB)
-                # conver to float before resizing for accuracy
-                im = im.to(dtype=torch.float32)
-                im = resize(im)
-                # get image subpath by removing data_path from filepath
-                file_subpath = filepath.removeprefix(str(data_path) + "/")
-                file_subpath = file_subpath.removeprefix(str(data_path))
-                # create new filepath as outpath/subpath
-                new_filepath = os.path.join(out_path, file_subpath)
-                new_filepath = new_filepath.replace(".jpg", ".pt")
-                torch.save(im, new_filepath)
-                log.write(f"Resized {filepath} and saved as {new_filepath}\n")
-        log.write("Done resizing images!\n")
-    print("Done resizing images!")
-    return Path(out_path)
+        # resize each file and place in out_path/sub_dir/fname.pt
+        for filename in files:
+            filepath = os.path.join(cur_dir, filename)
+            im = decode_image(filepath, mode=ImageReadMode.RGB)
+            # conver to float before resizing for accuracy
+            im = im.to(dtype=torch.float32)
+            im = resize(im)
+            # get image subpath by removing data_path from filepath
+            file_subpath = filepath.removeprefix(str(data_path) + "/")
+            file_subpath = file_subpath.removeprefix(str(data_path))
+            # create new filepath as outpath/subpath
+            new_filepath = os.path.join(out_path, file_subpath)
+            new_filepath = new_filepath.replace(".jpg", ".pt")
+            torch.save(im, new_filepath)
+            logger.debug_("Resized %s and saved as %s", filepath, new_filepath)
+
+    # register the newly created dataset to the database
+    dataset_id = register_dataset(data_path=out_path, notes="Resized images")
+
+    logger.info_("Done resizing images!")
+    return dataset_id, Path(out_path)
 
 
 def train_val_test(
-    data_path: Union[Path, str],
+    data_path: Path | str,
     ratios: tuple[int, int, int] = (60, 15, 25),
-    out_path: Union[Path, str, None] = None,
+    out_path: Path | str | None = None,
     seed: int = 42,
-) -> Path:
+) -> tuple[int, Path]:
     """
     Randomly places files in data_path into train, val, and test files
     at the out_path according to the ratios in 'ratios'.
 
     Args:
-        data_path (Union[Path, str]): path to the
+        data_path (Path | str): path to the
             unsplit and unnormalized data
-        ratios (list[int, int, int], optional): percentages of each class to
-            split into train/val/test. Each must be >= 0 and <= 100 and must
-            have sum=100, e.g., (70, 10, 20) for 70% train, 10% val, 20% test.
-            Defaults to (60, 15, 25).
-        out_path (Union[Path, str, None], optional): path where data
+        ratios (tuple[int, int, int], optional): percentages of each
+            class to split into train/val/test. Each must be >= 0
+            and <= 100 and must have sum=100, e.g., (70, 10, 20) for 70%
+            train, 10% val, 20% test. Defaults to (60, 15, 25).
+        out_path (Path | str | None, optional): path where data
             should be split into. Defaults to data_path + '-s[job_id]'.
-        seed (int, optional): seed for the python built-in random generator.
-            Defaults to 42.
+        seed (int, optional): seed for the python built-in random
+            generator. Defaults to 42.
 
     Returns:
-        Path: the output path out_path
+        tuple[int, Path]: the dataset ID and the path to the split data
     """
-    assert is_valid_directory(data_path=data_path)  # check directory exists
+    # specify default out_path if not given
+    job_id = get_data_processing_job_id()
+    out_path = Path(str(data_path).removesuffix("/") + "-s" + str(job_id))
+
+    logger.info_(
+        "Splitting data at %s into train/val/test sets at %s "
+        "using ratios %s and random seed %s...",
+        data_path,
+        out_path,
+        ratios,
+        seed,
+    )
+
+    assert is_valid_dataset(data_path=data_path, outside_logger=logger)
 
     # ensure valid ratios input
     assert (
@@ -325,266 +322,388 @@ def train_val_test(
         f"and for sum of all numbers to be 100. Got {ratios}."
     )
 
-    # TODO
-    # specify default out_path if not given
-    if out_path is None:
-        out_path = Path(
-            str(data_path).removesuffix("/") + "-split-" + get_file_date()
-        )
-
-    # TODO
     # make sure destination doesn't already exist to avoid issues
-    # we may handle this differently in the future, see above
     if os.path.exists(out_path):
-        raise NotImplementedError(
+        message = (
             f"Destination subdirectory {out_path} "
             "already exists, which is currently not handled"
         )
+        logger.error_("%s", message)
+        raise NotImplementedError(message)
+
     os.mkdir(out_path)
+    logger.debug_("Created output directory %s", out_path)
 
-    random.seed(seed)  # set random seed for reproducibility
+    # set random seed for reproducibility
+    random.seed(seed)
 
-    with open(
-        "logs/data_processing/train_val_test-" f"{get_log_time()}.log",
-        "w",
-        encoding="utf-8",
-    ) as log:
-        # log metadata
-        log.write(f"data_path: {data_path}\n")
-        log.write(f"ratios: {ratios}\n")
-        log.write(f"out_path: {out_path}\n")
-        log.write(f"seed: {seed}\n")
-        # log previous actions
-        log.write(f"Created output directory {out_path}\n")
-        # create directories for splits
-        splits = ["train", "val", "test"]
-        for split in splits:
-            split_dir = os.path.join(out_path, split)
-            os.mkdir(split_dir)
-            log.write(f"Created output directory {split_dir}\n")
+    # create directories for splits
+    splits = ["train", "val", "test"]
+    for split in splits:
+        split_dir = os.path.join(out_path, split)
+        os.mkdir(split_dir)
+        logger.debug_("Created output directory %s", split_dir)
 
-        for cur_dir, sub_dirs, files in os.walk(data_path):
-            # replicate data_path subdirectory format in destination
-            for sub_dir in sub_dirs:
-                for split in splits:
-                    new_dir = os.path.join(out_path, split, sub_dir)
-                    os.mkdir(new_dir)
-                    log.write(f"Created output directory {new_dir}\n")
-            # skip forward if there are no files to sort in current directory
-            if len(files) == 0:
-                continue
-            # get random permution of files
-            shuffled_files = random.sample(files, k=len(files))
-            # get current subdirectory to replicate within each split directory
-            cur_subdir = cur_dir.removeprefix(str(data_path) + "/")
-            cur_subdir = cur_subdir.removeprefix(str(data_path))
-            split_dirs = [
-                os.path.join(out_path, split, cur_subdir) for split in splits
-            ]
-            # calculate number of samples in subdir to go in each split
-            split_nums = [
-                len(files) * ratios[0] // 100,  # train
-                len(files) * ratios[1] // 100,  # val
-                len(files)
-                - len(files) * ratios[0] // 100  # test
-                - len(files) * ratios[1] // 100,
-            ]
-            # sort files into correct folders
-            for i, split_dir in enumerate(split_dirs):
-                log.write(f"Copying {split_nums[i]} files to {split_dir}\n")
-                for _ in range(split_nums[i]):
-                    # draw total of len(files) files from end of file list
-                    filename = shuffled_files.pop()
-                    # get current and new filepaths
-                    filepath = os.path.join(cur_dir, filename)
-                    new_filepath = os.path.join(split_dir, filename)
-                    # copy to new filepath
-                    os.system(f"cp {filepath} {new_filepath}")
-                    log.write(f"Copied {filepath} to {new_filepath}\n")
-        log.write("Done creating train/val/test splits!")
-    print("Done creating train/val/test splits!")
-    return Path(out_path)
+    for cur_dir, sub_dirs, files in os.walk(data_path):
+        # replicate data_path subdirectory format in destination
+        for sub_dir in sub_dirs:
+            for split in splits:
+                new_dir = os.path.join(out_path, split, sub_dir)
+                os.mkdir(new_dir)
+                logger.debug_("Created output directory %s", new_dir)
+        # skip forward if there are no files to sort in current directory
+        if len(files) == 0:
+            continue
+        # get random permution of files
+        shuffled_files = random.sample(files, k=len(files))
+        # get current subdirectory to replicate within each split directory
+        cur_subdir = cur_dir.removeprefix(str(data_path) + "/")
+        cur_subdir = cur_subdir.removeprefix(str(data_path))
+        split_dirs = [
+            os.path.join(out_path, split, cur_subdir) for split in splits
+        ]
+        # calculate number of samples in subdir to go in each split
+        split_nums = [
+            len(files) * ratios[0] // 100,  # train
+            len(files) * ratios[1] // 100,  # val
+            len(files)
+            - len(files) * ratios[0] // 100  # test
+            - len(files) * ratios[1] // 100,
+        ]
+        # sort files into correct folders
+        for i, split_dir in enumerate(split_dirs):
+            logger.debug_("Copying %s files to %s", split_nums[i], split_dir)
+            for _ in range(int(split_nums[i])):
+                # draw total of len(files) files from end of file list
+                filename = shuffled_files.pop()
+                # get current and new filepaths
+                filepath = os.path.join(cur_dir, filename)
+                new_filepath = os.path.join(split_dir, filename)
+                # copy to new filepath
+                os.system(f"cp {filepath} {new_filepath}")
+                logger.debug_("Copied %s to %s", filepath, new_filepath)
 
-
-def collect_stats(
-    data_path: Union[Path, str]
-) -> tuple[Tensor, Tensor, Tensor, Tensor]:
-    """
-    Collects mins, maxes, means, and std. deviations for each channel
-
-    Arguments:
-        data_path {Union[Path, str]} -- path to training data
-
-    Returns:
-        tuple[list[float]] -- [channel_mins(3), channel_maxes(3),
-            channel_means(3), channel stds(3)]
-    """
-    assert is_valid_directory(data_path=data_path)  # check directory exists
-
-    # initialize stats for tracking
-    num_files = 0
-    channel_mins = torch.tensor([255.0, 255.0, 255.0])
-    channel_maxes = torch.tensor([0.0, 0.0, 0.0])
-    channel_means = torch.tensor([0.0, 0.0, 0.0])
-    channel_stds = torch.tensor([0.0, 0.0, 0.0])
-
-    # collect stats from training files
-    for cur_dir, _, files in os.walk(os.path.join(data_path)):
-        for file in files:
-            filepath = os.path.join(cur_dir, file)
-            im = torch.load(filepath, map_location="cpu", weights_only=True)
-            num_files += 1
-            channel_means += im.mean(dim=[1, 2])
-            channel_stds += im.std(dim=[1, 2])
-            im_mins = torch.amin(im, dim=(1, 2))
-            im_maxes = torch.amax(im, dim=(1, 2))
-            for channel in range(im.shape[0]):
-                if im_mins[channel] < channel_mins[channel]:
-                    channel_mins[channel] = im_mins[channel].item()
-                if im_maxes[channel] > channel_maxes[channel]:
-                    channel_maxes[channel] = im_maxes[channel].item()
-    channel_means /= num_files
-    channel_stds /= num_files
-
-    return channel_mins, channel_maxes, channel_means, channel_stds
-
-
-def normalize_tensor(
-    tensor: Tensor,
-    mins: Tensor,
-    maxes: Tensor,
-    means: Tensor,
-    stds: Tensor,
-) -> Tensor:
-    """
-    Normalizes tensor by applying the formula
-    normed_tensor = (tensor / spans - means / spans) / (stds / spans)
-                  = (tensor - means) / stds
-        where spans = maxes - mins
-
-    Arguments:
-        tensor {Tensor} -- tensor to be normalized
-        mins {Tensor} -- the minimum values in each channel
-        maxes {Tensor} -- _the maximum values in each channel
-        means {Tensor} -- the mean values in each channel
-        stds {Tensor} -- the std. deviations of each channel's values
-
-    Returns:
-        Tensor -- the normalized tensor
-    """
-    spans = maxes - mins
-    spans = spans[:, None, None]
-    means = means[:, None, None]
-    stds = stds[:, None, None]
-    return ((tensor / spans) - (means / spans)) / (stds / spans)
-
-
-def normalize_data(data_path: Union[Path, str]) -> Path:
-    """
-    Normalizes data in train, val, and test directories at data_path
-    according to statistics of the train data. Scales each channel to 0-1
-    then subtracts mean and divides by standard deviation
-
-    Arguments:
-        data_path {Union[Path, str]} -- path to data to be normalized
-
-    Returns:
-        Path -- the original data_path
-    """
-    assert is_valid_directory(data_path=data_path)  # check directory exists
-
-    # get stats from training data
-    channel_mins, channel_maxes, channel_means, channel_stds = collect_stats(
-        os.path.join(data_path, "train")
+    # register the newly created dataset to the database
+    dataset_id = register_dataset(
+        data_path=out_path, notes="Split into train/val/test"
     )
 
-    with open(
-        "logs/data_processing/normalize_data-" f"{get_log_time()}.log",
-        "w",
-        encoding="utf-8",
-    ) as log:
-        # log stats
-        log.write("Got training data statistics\n")
-        log.write(f"channel_mins: {channel_mins}\n")
-        log.write(f"channel_maxes: {channel_maxes}\n")
-        log.write(f"channel_means: {channel_means}\n")
-        log.write(f"channel_stds: {channel_stds}\n")
-
-        # normalize data in each split
-        for split in ["train", "val", "test"]:
-            for cur_dir, _, files in os.walk(os.path.join(data_path, split)):
-                for file in files:
-                    filepath = os.path.join(cur_dir, file)
-                    im = torch.load(
-                        filepath, map_location="cpu", weights_only=True
-                    )
-                    im = normalize_tensor(
-                        tensor=im,
-                        mins=channel_mins,
-                        maxes=channel_maxes,
-                        means=channel_means,
-                        stds=channel_stds,
-                    )
-                    torch.save(im, f=filepath)
-                    log.write(f"Normalized tensor at {filepath}\n")
-        log.write("Done normalizing data!\n")
-    print("Done normalizing data!")
-    return Path(data_path)
+    logger.info_("Done creating train/val/test splits!")
+    return dataset_id, Path(out_path)
 
 
-def run_full_processing_pipeline(
-    data_path: Union[Path, str]
-) -> dict[str, tuple[Path, str]]:
+# def collect_stats(
+#     data_path: Path | str,
+# ) -> tuple[Tensor, Tensor]:
+#     """
+#     Collects mean and standard deviations for the data
+
+#     Args:
+#         data_path (Path | str): path to top of data directory to
+#             collect stats
+
+#     Returns:
+#         tuple[Tensor, Tensor]: the mean and standard deviations
+#             for all three channels
+#     """
+#     logger.debug_("Collecting statistics for data at %s...", data_path)
+
+#     assert is_valid_dataset(data_path=data_path, outside_logger=logger)
+
+#     # initialize stats for tracking
+#     num_files = 0
+#     channel_means = torch.tensor([0.0, 0.0, 0.0])
+#     channel_stds = torch.tensor([0.0, 0.0, 0.0])
+
+#     # collect stats from training files
+#     for cur_dir, _, files in os.walk(os.path.join(data_path)):
+#         for file in files:
+#             filepath = os.path.join(cur_dir, file)
+#             im = torch.load(filepath, map_location="cpu", weights_only=True)
+#             num_files += 1
+#             channel_means += im.mean(dim=[1, 2])
+#             channel_stds += im.std(dim=[1, 2])
+#     channel_means /= num_files
+#     channel_stds /= num_files
+
+#     logger.debug_("Done collecting statistics!")
+#     return channel_means, channel_stds
+
+
+# def normalize_tensor(
+#     tensor: Tensor,
+#     means: Tensor,
+#     stds: Tensor,
+# ) -> Tensor:
+#     """
+#     Normalizes tensor by subtracting means
+#     and dividing by the standard deviations
+
+#     Args:
+#         tensor (Tensor): tensor to normalize
+#         means (Tensor): means for each channel
+#         stds (Tensor): standard deviations for each channel
+
+#     Returns:
+#         Tensor: the normalized tensor
+#     """
+#     means = means[:, None, None]
+#     stds = stds[:, None, None]
+#     return (tensor - means) / stds
+
+
+# def normalize_data(
+#     data_path: Path | str, method: str
+# ) -> tuple[int, Path, Path]:
+#     """
+#     Normalizes data in train, val, and test directories at data_path
+#     according to statistics of the train data by subtracting per-channel
+#     means and dividing by per-channel standard deviations
+
+#     Args:
+#         data_path (Path | str): path to top of data directory
+#         method (str): method to use for normalization. Supported methods
+#             are in the normalization_methods database table.
+
+#     Returns:
+#         tuple[int, Path, Path]: the resulting dataset id,
+#             the path to the normalized data,
+#             and the path to the statistics used for normalization
+#     """
+#     logger.info_(
+#         "Beginning dataset normalization at %s using %s...",
+#         data_path,
+#         method,
+#     )
+
+#     assert is_valid_dataset(data_path=data_path, outside_logger=logger)
+
+#     # get stats from training data
+#     channel_means, channel_stds = collect_stats(
+#         os.path.join(data_path, "train")
+#     )
+
+#     # log stats
+#     logger.debug_(
+#         "channel_means: %s, channel_stds: %s", channel_means, channel_stds
+#     )
+
+#     # normalize data in each split
+#     for split in ["train", "val", "test"]:
+#         for cur_dir, _, files in os.walk(os.path.join(data_path, split)):
+#             for file in files:
+#                 filepath = os.path.join(cur_dir, file)
+#                 im = torch.load(
+#                     filepath, map_location="cpu", weights_only=True
+#                 )
+#                 im = normalize_tensor(
+#                     tensor=im,
+#                     means=channel_means,
+#                     stds=channel_stds,
+#                 )
+#                 torch.save(im, f=filepath)
+#                 logger.debug_("Normalized %s", filepath)
+
+#     # register the newly normalized dataset to the database
+#     dataset_id = register_dataset(
+#         data_path=data_path, notes="Normalized data"
+#     )
+
+#     logger.info_("Done normalizing dataset!")
+#     return dataset_id, Path(data_path), Path(data_path)
+
+
+def minmax_normalize(data_path: Path | str) -> tuple[int, Path, None]:
     """
-    Runs subdirectory name cleaning, filename cleaning, resizing,
-    train_val_test, and normalization all together
+    Normalizes data in train, val, and test directories at data_path
+    by subtracting the minimum and dividing by the new maximum.
+    The minimum and maximum are assumed to be 0 and 255
+    for all channels,
+    and the data is assumed to be in .pt or .npy format.
 
-    Arguments:
-        data_path {Union[Path, str]} -- path to data to start with
+    Args:
+        data_path (Path | str): path to top of data directory
 
     Returns:
-        dict[str, tuple[Path, str]] -- dictionary with info
-            about intermediate processing steps
+        tuple[int, Path, None]: the resulting dataset id,
+            the path to the normalized data,
+            and None as a placeholder for the statistics path
     """
-    assert is_valid_directory(data_path=data_path)  # check directory exists
+    logger.info_(
+        "Beginning dataset normalization at %s using min-max method...",
+        data_path,
+    )
 
-    with open(
-        "logs/data_processing/"
-        f"run_full_processing_pipeline-{get_log_time()}.log",
-        "w",
-        encoding="utf-8",
-    ) as log:
-        log.write("Cleaning data naming...\n")
-        original_path = clean_data_naming(data_path=data_path)  # run cleaning
-        log.writelines(["Done cleaning data names!\n", "Resizing images...\n"])
-        resize_path = resize_images(data_path=original_path)  # run resizing
-        log.writelines(
-            [
-                f"Done resizing images!\nResized images at {resize_path}",
-                "Creating training splits...\n",
-            ]
-        )
-        split_path = train_val_test(data_path=resize_path)  # run splitting
-        log.writelines(
-            [
-                f"Done creating training splits!\nSplits at {split_path}",
-                "Normalizing data...\n",
-            ]
-        )
-        final_path = normalize_data(data_path=split_path)  # run normalization
-        log.writelines(
-            [
-                f"Done normalizing data!\nNormalized data at {final_path}\n",
-                "Done data processing!\n",
-            ]
-        )
-    print("Done data processing!")
-    result_dict = {
-        "Input": (Path(data_path), "no change"),
-        "Cleaning": (Path(original_path), "in place"),
-        "Resizing": (Path(resize_path), "new path"),
-        "Splitting": (Path(split_path), "new path"),
-        "Normalization": (Path(final_path), "in place"),
-        "Output": (Path(final_path), "no change"),
-    }
-    return result_dict
+    assert is_valid_dataset(data_path=data_path, outside_logger=logger)
+
+    return 0, Path(data_path), None
+
+
+def minmaxplus_normalize(data_path: Path | str) -> tuple[int, Path, None]:
+    """
+    Normalizes data in train, val, and test directories at data_path
+    by subtracting the minimum and dividing by the new maximum,
+    then shifting and scaling the data to the range [-1, 1]
+
+    Args:
+        data_path (Path | str): path to top of data directory
+
+    Returns:
+        tuple[int, Path, Path]: the resulting dataset id,
+            the path to the normalized data,
+            and the path to the statistics used for normalization
+    """
+    logger.info_(
+        "Beginning dataset normalization at %s using min-max-plus method...",
+        data_path,
+    )
+
+    assert is_valid_dataset(data_path=data_path, outside_logger=logger)
+
+    return 0, Path(data_path), None
+
+
+def zscore_normalize(data_path: Path | str) -> tuple[int, Path, Path]:
+    """
+    Normalizes data in train, val, and test directories at data_path
+    by subtracting the mean and dividing by the standard deviation
+    on a per-channel basis
+
+    Args:
+        data_path (Path | str): path to top of data directory
+
+    Returns:
+        tuple[int, Path, Path]: the resulting dataset id,
+            the path to the normalized data,
+            and the path to the statistics used for normalization
+    """
+    logger.info_(
+        "Beginning dataset normalization at %s using z-score method...",
+        data_path,
+    )
+
+    assert is_valid_dataset(data_path=data_path, outside_logger=logger)
+
+    return 0, Path(data_path), Path(data_path)
+
+
+def pixelz_normalize(data_path: Path | str) -> tuple[int, Path, Path]:
+    """
+    Normalizes data in train, val, and test directories at data_path
+    by subtracting the mean and dividing by the standard deviation
+    on a per-pixel basis
+
+    Args:
+        data_path (Path | str): path to top of data directory
+
+    Returns:
+        tuple[int, Path, Path]: the resulting dataset id,
+            the path to the normalized data,
+            and the path to the statistics used for normalization
+    """
+    logger.info_(
+        "Beginning dataset normalization at %s using pixelz method...",
+        data_path,
+    )
+
+    assert is_valid_dataset(data_path=data_path, outside_logger=logger)
+
+    return 0, Path(data_path), Path(data_path)
+
+
+def normalize_data(
+    data_path: Path | str, method: str
+) -> tuple[int, Path, Path | None]:
+    """
+    Normalizes data in train, val, and test directories at data_path
+    according to statistics of the train data using provided method
+
+    Args:
+        data_path (Path | str): path to top of data directory
+        method (str): method to use for normalization. Supported methods
+            are in the normalization_methods database table.
+
+    Returns:
+        tuple[int, Path, Path]: the resulting dataset id,
+            the path to the normalized data,
+            and the path to the statistics used for normalization
+    """
+    assert is_valid_dataset(data_path=data_path, outside_logger=logger)
+
+    # make sure the method is in the normalization_methods database table
+    postgres_connection_string = get_postgres_connection_string()
+    # pylint has a false positive when using psycopg 3's new context managers
+    # pylint: disable=not-context-manager
+    with connect(postgres_connection_string, autocommit=True) as conn:
+        with conn.cursor() as curs:
+            curs.execute(
+                "SELECT method FROM normalization_methods WHERE method=%s;",
+                (method,),
+            )
+            res = curs.fetchone()
+            if res is None:
+                # if method is not in the database, raise an error
+                # and provide the methods currently in the database
+                curs.execute("SELECT method FROM normalization_methods;")
+                methods = curs.fetchall()
+                message = (
+                    f"Provided normalization method '{method}' "
+                    "is not in the normalization_methods database table. "
+                    f"Methods currently in the database are: {methods}."
+                )
+                logger.error_("%s", message)
+                raise ValueError(message)
+    # pylint: enable=not-context-manager
+
+    # normalize data using the specified method
+    if method == "minmax":
+        return minmax_normalize(data_path=data_path)
+    if method == "minmaxplus":
+        return minmaxplus_normalize(data_path=data_path)
+    if method == "zscore":
+        return zscore_normalize(data_path=data_path)
+    if method == "pixelz":
+        return pixelz_normalize(data_path=data_path)
+
+    # if method is not supported, raise an error
+    message = (
+        f"Provided normalization method '{method}' is not implemented. "
+        "Implement it in data_processing.py and add it to if statements above."
+    )
+    logger.error_("%s", message)
+    raise ValueError(message)
+
+
+def convert_to_jpeg(
+    data_path: Path | str, quality: float, out_path: Path | str | None = None
+) -> tuple[int, Path]:
+    """
+    Converts all tensors in data_path to JPEG images
+    with the given quality and saves them in out_path
+
+    Args:
+        data_path (Path | str): path to the top of the data directory
+        quality (float): quality of the JPEG images to save.
+            Must be between 0 and 100. See pillow docs for more info.
+        out_path (Path | str | None, optional): path where data
+            should be saved to. Defaults to data_path + '-c[job_id]'.
+
+    Returns:
+        tuple[int, Path]: the dataset ID and the path to the split data
+    """
+    # specify default out_path if not given
+    job_id = get_data_processing_job_id()
+    out_path = Path(str(data_path).removesuffix("/") + "-s" + str(job_id))
+
+    logger.info_(
+        "Converting data at %s to JPEG at %s using compression quality %s",
+        data_path,
+        out_path,
+        quality,
+    )
+
+    assert is_valid_dataset(data_path=data_path, outside_logger=logger)
+
+    # TODO: implement conversion to JPEG
+
+    return job_id, Path(out_path)

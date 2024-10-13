@@ -1,14 +1,15 @@
-"""File defining the dataset for Mavira's Classifier training"""
+"""
+Module defining the dataset class for Mavira's Classifier training.
+"""
 
 from pathlib import Path
-from typing import Union
 
 import torch
 from torch import Tensor
 from torchvision.datasets import DatasetFolder
 from torchvision.transforms.v2 import RandomHorizontalFlip
 
-from ..utils.general import get_device, is_valid_directory
+from ..utils.general import get_device, is_valid_dataset
 
 
 class ClassifierDataset(DatasetFolder):
@@ -18,12 +19,12 @@ class ClassifierDataset(DatasetFolder):
     Subclasses torchvision's DatasetFolder class
     """
 
-    def __init__(self, data_path: Union[Path, str]) -> None:
+    def __init__(self, data_path: Path | str) -> None:
         """
         Initializes dataset by specifying the path to the data
 
-        Arguments:
-            data_path {Union[Path, str]} -- path to the image data
+        Args:
+            data_path (Path | str): path to the image data
         """
         # super is DatasetFolder, which inherits from VisionDataset
         super().__init__(
@@ -32,12 +33,12 @@ class ClassifierDataset(DatasetFolder):
             extensions=(".pt",),
         )
 
-        is_valid_directory(data_path=data_path)  # check data directory
+        assert is_valid_dataset(data_path=data_path)  # check dataset directory
 
         # set object's attribute as pathlib Path
         if isinstance(data_path, str):
             self.data_path = Path(data_path)
-        elif isinstance(data_path, Path):
+        else:
             self.data_path = data_path
 
         # self.classes is list[str] of class names
@@ -55,7 +56,7 @@ class ClassifierDataset(DatasetFolder):
         Returns the number of items in the dataset
 
         Returns:
-            int -- number of items in the dataset
+            int: number of items in the dataset
         """
         return len(self.samples)
 
@@ -64,11 +65,11 @@ class ClassifierDataset(DatasetFolder):
         Returns the image and corresponding class index that
         are at the specified index in the samples list
 
-        Arguments:
-            index {int} -- index of the dataset item to retrieve
+        Args:
+            index (int): index of the dataset item to retrieve
 
         Returns:
-            tuple[Tensor, int] -- the image and the class label index
+            tuple[Tensor, int]: the image and the class label index
         """
         img_path, class_index = self.samples[index]
 

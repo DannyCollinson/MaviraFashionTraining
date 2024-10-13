@@ -1,3 +1,5 @@
-Information about the PostgreSQL database used for logging info about datasets, processing runs, training runs, checkpoints, etc.
+## Information about the PostgreSQL database used for logging info about datasets, processing runs, training runs, checkpoints, etc.
 
-For now, we are all running PostgreSQL locally until we move everything to the cloud.
+Running `set_up_tables.sh` initializes all of the tables in the `mavirafashiontrainingdb` database.
+
+For now, we are each running PostgreSQL locally until we move everything to the cloud.

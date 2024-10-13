@@ -1,1 +1,1 @@
-"""Defines the model used for MAE training"""
+""" Module defining the model used for MAE training. """

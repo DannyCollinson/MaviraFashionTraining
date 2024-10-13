@@ -1,20 +1,23 @@
 ###########################################################
 # Danny changes
+
 data/*
-!data/placeholder_folder
 
 logs/*
-!logs/*/log_placeholder.log
 
 checkpoints/*
-!checkpoints/checkpoint_placeholder.pt
 
 scratch*
 
 test*/
+test.log
 !tests
 
 # .vscode/
+
+reset*
+
+useful_commands.txt
 ###########################################################
 
 # Byte-compiled / optimized / DLL files

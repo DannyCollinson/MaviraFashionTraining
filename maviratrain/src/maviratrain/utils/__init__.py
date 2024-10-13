@@ -1,1 +1,1 @@
-"""Set up package"""
+""" Setup module. """

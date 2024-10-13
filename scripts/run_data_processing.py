@@ -1,72 +1,120 @@
-"""Script to run data processing pipeline"""
+""" Script to run data processing pipeline. """
 
 import argparse
 from pathlib import Path
+from typing import Any
 
 from maviratrain.data import data_processing
+from maviratrain.utils.cleanup import clean_up_intermediate_dataset
+from maviratrain.utils.general import get_logger, get_time
+from maviratrain.utils.registration.register_data import (
+    get_dataset_id,
+    register_processing_job,
+)
 
+# set up logger
+logger = get_logger(
+    "scripts.run_data_processing",
+    # should be running from a notebook, hence the ../
+    log_filename="../logs/data_processing/data_processing.log",
+    rotation_params=(1000000, 1000),  # 1 MB, 1000 backups
+)
+
+# set up argument parser
 parser = argparse.ArgumentParser(
-    description="For running data processing pipeline"
+    description="Run the data processing pipeline"
 )
 parser.add_argument(
     "stage",
     type=int,
-    choices=[-1, 0, 1, 2, 3],
+    choices=[-1, 0, 1, 2, 3, 4, 34],
     help=(
-        "Specifies after which stage the processing pipeline should stop. "
-        "If -1, then the whole processing pipeline is run on the data at "
-        "--raw according to any other options provided. If 0, then only file "
-        "and directory name cleaning is performed on the data at --raw; all "
-        "other options are ignored. If 1, then processing runs through "
-        "resizing only; if 2, processing runs through train/val/test "
-        "splitting; and if 3, processing is run through normalization. "
+        "Specifies after which stage the processing pipeline"
+        "should stop. If -1, then the whole processing pipeline is run "
+        "on the data at --raw according to any other options provided. "
+        "If 0, then only file and directory name cleaning is performed "
+        "on the data at --raw; all other options are ignored. "
+        "If 1, then processing runs through resizing only; "
+        "if 2, processing runs through train/val/test splitting; "
+        "if 3, processing is run through normalization; "
+        "if 4, only file format conversion is performed; and "
+        "if 34, then only normalization and "
+        "file format conversion are performed. "
         "All unnecessary options are ignored."
     ),
 )
 parser.add_argument(
-    "-r", "--raw", type=str, help="Path to raw data to be processed"
+    "-r",
+    "--raw",
+    type=str,
+    help="String. Path to raw data to be processed.",
+    default=None,
 )
 parser.add_argument(
     "--resized",
     type=str,
     help=(
-        "If --raw is specified, then --resized is interpreted as the path to "
-        "place data at after being resized. If --raw is not specified, then "
-        "--resized is assumed to be the path to start the processing pipeline "
-        "with train/val/test splitting under the assumption that the data "
-        "there has already been resized. "
-        "Defaults to [--raw]-resized if --raw is specified."
+        "String. If --raw is specified, then --resized is interpreted "
+        "as the path to place data at after being resized. "
+        "If only running resizing, then the data at --raw is assumed "
+        "to be data for resizing that has already been cleaned. "
+        "If --raw is not specified, then --resized is assumed to be "
+        "the path to start the processing pipeline "
+        "with train/val/test splitting under the assumption that "
+        "the data there has already been resized. "
+        "Defaults to [--raw]-r[job_id] if --raw is specified."
     ),
+    default=None,
 )
 parser.add_argument(
     "--split",
     type=str,
     help=(
-        "If --raw or --resized are specified, then --split is interpreted as "
-        "the path to place data at after being resized. If --raw and "
-        "--resized are not specified, then --split is assumed to be the path "
-        "to start the processing pipeline with train/val/test splitting under "
-        "the assumption that the data there has already undergone "
-        "train/val/test splitting. "
-        "Defaults to [--resized]-split if --resized is specified."
+        "String. If --raw or --resized are specified, then --split is "
+        "interpreted as the path to place data at after being resized. "
+        "If --raw and --resized are not specified, "
+        "then --split is assumed to be the path "
+        "to start the processing pipeline with normalization "
+        "under the assumption that the data there "
+        "has already undergone train/val/test splitting. "
+        "If stage is 3, then --split is the path "
+        "to already split data that is to be normalized. "
+        "If stage is 4, then --split is the path to the data to be "
+        "converted to a new format, which is assumed "
+        "to have already been normalized. "
+        "If stage is 34, then --split is the path to split data "
+        "to be normalized and converted to a new format. "
+        "Defaults to [--resized]-s[job_id] if --resized is specified."
     ),
+    default=None,
 )
 parser.add_argument(
-    "-h",
+    "--converted",
+    type=str,
+    help=(
+        "String. If --raw or --resized or --split are specified, "
+        "then --converted is interpreted as the path to place data at "
+        "after being converted to a new format. If stage is equal "
+        "to 4, then --split is the path to the data to be converted, "
+        "which is assumed to have already been normalized. "
+        "Defaults to [--split]-c[job_id] if --split is specified."
+    ),
+    default=None,
+)
+parser.add_argument(
     "--height",
     type=int,
     help=(
-        "The height to make resized images. "
+        "Integer. The height to make resized images. "
         "Ignored if not performing resizing. Defaults to 224."
     ),
     default=224,
 )
 parser.add_argument(
-    "-w",
     "--width",
     type=int,
     help=(
-        "The width to make resized images. "
+        "Integer. The width to make resized images. "
         "Ignored if not performing resizing. Defaults to 224."
     ),
     default=224,
@@ -75,8 +123,8 @@ parser.add_argument(
     "--interp",
     type=str,
     help=(
-        "Name (case insensitive) of the interpolation mode to be used by "
-        "torchvision.transforms.v2.Resize. "
+        "String. Name (case insensitive) of the interpolation mode "
+        "to be used by torchvision.transforms.v2.Resize. "
         "Ignored if not performing resizing. Defaults to 'bilinear'."
     ),
     default="bilinear",
@@ -85,51 +133,109 @@ parser.add_argument(
     "--ratios",
     type=str,
     help=(
-        "String containing three numbers formatted as 'x/y/z' such that "
-        "x+y+z = 100 which determine the train/val/test ratios. "
-        "Defaults to '60/15/25."
+        "String. String containing three numbers formatted "
+        "as 'x/y/z' such that x+y+z = 100. "
+        "Determines the train/val/test ratios. "
+        "Defaults to '60/15/25'."
     ),
     default="60/15/25",
+)
+parser.add_argument(
+    "--norm_method",
+    type=str,
+    help=(
+        "String. Name of the normalization method to use. "
+        "Current options are "
+        "'zscore', 'minmax', 'pixelz' 'minmaxplus', and 'none'. "
+        "Ignored if not performing normalization. "
+        "Defaults to 'zscore'."
+    ),
+    default="zscore",
+)
+parser.add_argument(
+    "--format",
+    type=str,
+    help=(
+        "String. Format to convert images to, given as a filename "
+        "extension. Ignored if not performing conversion. "
+        "Defaults to 'npy', for numpy array."
+    ),
+    default="npy",
+)
+parser.add_argument(
+    "--quality",
+    type=int,
+    help=(
+        "Integer. Quality of conversion to JPEG. Between 0 and 100. "
+        "Ignored if not performing JPEG conversion. Defaults to 95."
+    ),
+    default=95,
 )
 parser.add_argument(
     "-c",
     "--cleanup",
     type=int,
     help=(
-        "Specifies if intermediate resized dataset should be removed after "
-        "splitting. Only occurs if this value is 1 and splitting is run. "
+        "Integer; 0 or 1. Specifies if intermediate resized dataset "
+        "should be removed after splitting. "
+        "Only occurs if this value is 1 and splitting is run. "
         "Defaults to 0 (no deletion)."
     ),
     default=0,
 )
+parser.add_argument(
+    "--seed",
+    type=int,
+    help=(
+        "Integer. Seed to use for python's random number generation. "
+        "Defaults to 42."
+    ),
+    default=42,
+)
+parser.add_argument(
+    "--notes",
+    type=str,
+    help=(
+        "String. Any notes to include in the database entry for the "
+        "data processing job. Defaults to None."
+    ),
+    default=None,
+)
 
 
-def run(arg: argparse.Namespace) -> dict[str, tuple[str, Path, str]]:
+def get_stages(arg: argparse.Namespace) -> list[int]:
     """
-    Runs the data processing pipeline according to the specified arguments
+    Get the stages to run based on the command line arguments
 
     Args:
-        arg (argparse.Namespace): the command line arguments from argparse
+        arg (argparse.Namespace): the command line arguments
+            from argparse
 
     Returns:
-        dict[str, tuple[str, Path, str]]: a dictionary with pipeline stage
-        numbers mapped to the job_id, the result path, and whether there was
-        no change or the change was in place or at a new path
+        list[int]: list representing the stages to run
     """
-    # determine which stages need to be run
+    logger.debug_(
+        "Parsing command line arguments to determine stages to run..."
+    )
+
+    # store list of integers representing stages to run
     stages = []
+
     # if -1, run whole pipeline
     if arg.stage == -1:
         assert arg.raw is not None, "If stage=-1, --raw must be specified"
-        stages.extend([0, 1, 2, 3])
+        stages.extend([0, 1, 2, 3, 4])
+
     # if stage is 0, run only name cleaning
     elif arg.stage == 0:
         assert arg.raw is not None, "If stage=0, --raw must be specified"
         stages.append(0)  # only run name cleaning
+
     # if stage is 1, the path is still specified by --raw, but no name cleaning
     elif arg.stage == 1:
         assert arg.raw is not None, "If stage=1, --raw must be specified"
         stages.append(1)  # only run resizing
+
     # if stage is 2, check if raw and/or resized are provided
     elif arg.stage == 2:
         assert (
@@ -139,7 +245,8 @@ def run(arg: argparse.Namespace) -> dict[str, tuple[str, Path, str]]:
             stages.extend([0, 1, 2])  # run up through splitting
         else:
             stages.append(2)  # only run splitting
-        # if stage is 3, check if raw, resized, or split are provided
+
+    # if stage is 3, check if raw, resized, or split are provided
     elif arg.stage == 3:
         assert (
             arg.raw is not None
@@ -147,50 +254,211 @@ def run(arg: argparse.Namespace) -> dict[str, tuple[str, Path, str]]:
             or arg.split is not None
         ), "If stage=3, either --raw, --resized, or --split must be provided"
         if arg.raw is not None:
-            stages.extend([0, 1, 2, 3])  # run the whole pipeline
+            stages.extend([0, 1, 2, 3])  # run from beginning
         elif arg.resized is not None:
             stages.extend([2, 3])  # run starting with splitting
         else:
             stages.append(3)  # only run normalization
 
-    # run the specified stages and store the result metadata here
-    result_dict = {}
+    # if stage is 4, check if raw, resized, split, or converted are provided
+    elif arg.stage == 4:
+        assert (
+            arg.raw is not None
+            or arg.resized is not None
+            or arg.split is not None
+        ), "If stage=4, either --raw, --resized, or --split must be provided"
+        if arg.raw is not None:
+            stages.extend([0, 1, 2, 3, 4])  # run from beginning
+        elif arg.resized is not None:
+            stages.extend([2, 3, 4])  # run starting with splitting
+        else:
+            stages.extend([4])  # run only conversion
 
-    if 0 in stages:
+    # if stage is 34, check if split or converted are provided
+    elif arg.stage == 34:
+        assert arg.split is not None, "If stage=34, --split must be provided"
+        stages.extend([3, 4])  # run normalization and conversion
+
+    logger.debug_("Determined stages to run: %s", stages)
+    return stages
+
+
+def run(arg: argparse.Namespace) -> dict[str, Any]:
+    """
+    Runs the data processing pipeline
+    according to the specified arguments
+
+    Args:
+        arg (argparse.Namespace): the command line arguments
+            from argparse
+
+    Returns:
+        dict[str, Any]: a dictionary with all of the information
+            about the data processing job
+    """
+    # store results in a dictionary
+    result: dict[str, Any] = {}
+
+    # get job ID based on the previous job ID
+    job_id = data_processing.get_data_processing_job_id()
+    result["job_id"] = job_id
+
+    logger.info_("Running data processing pipeline with job ID %s...", job_id)
+
+    # get start time to store in database
+    result["start_time"] = get_time()
+
+    # determine which stages need to be run
+    stages = get_stages(arg)
+    result["stages"] = stages
+
+    # store the raw data path in the result dictionary
+    result["raw_path"] = arg.raw
+
+    # try to get the starting dataset id from the database using the raw path
+    if arg.raw is not None:
+        try:
+            result["starting_dataset_id"] = get_dataset_id(data_path=arg.raw)
+        except RuntimeError as e:
+            result["starting_dataset_id"] = None
+            logger.error_(str(e))
+    else:
+        result["starting_dataset_id"] = None
+
+    # run the specified stages
+    if 0 in stages:  # name cleaning
+        result["starting_dataset_path"] = arg.raw
         # run name cleaning
-        raw_path = data_processing.clean_data_naming(arg.raw)
-        result_dict["0"] = ("[job_id]", Path(raw_path), "in place")  # TODO
+        renamed_id, renamed_path = data_processing.clean_data_naming(
+            data_path=arg.raw, job_id=job_id
+        )
+        result["0"] = (renamed_id, Path(renamed_path))
+    else:
+        # if not cleaning, set renamed_path to None for next stages
+        renamed_path = None
+        result["0"] = None
 
-    if 1 in stages:
+    if 1 in stages:  # resizing
+        # determine which input path to use for resizing
+        if renamed_path:
+            use_path = renamed_path
+        else:
+            use_path = arg.raw
+            result["starting_dataset_path"] = arg.raw
         # run resizing
-        resized_path = data_processing.resize_images(
-            data_path=arg.raw,
+        resized_id, resized_path = data_processing.resize_images(
+            data_path=use_path,
             size=(arg.height, arg.width),
-            interpolation=arg.interpolation,
+            interpolation=arg.interp,
             out_path=arg.resized,
         )
-        result_dict["1"] = ("[job_id]", Path(resized_path), "new path")  # TODO
+        result["interpolation"] = arg.interp
+        result["1"] = (resized_id, Path(resized_path))
+    else:
+        resized_path = None  # set to None for next stages
+        # if not resizing, set interpolation to None for registering job
+        result["interpolation"] = None
+        result["1"] = None
 
-    if 2 in stages:
+    if 2 in stages:  # train/val/test splitting
+        # determine which input path to use for splitting
+        if resized_path:
+            use_path = resized_path
+        else:
+            use_path = arg.resized
+            result["starting_dataset_path"] = arg.resized
         # run train/val/test splitting
-        ratios = tuple(arg.ratios.split("/"))
-        split_path = data_processing.train_val_test(
-            data_path=arg.resized,
-            ratios=ratios,
+        ratios = [int(num) for num in arg.ratios.split("/")]
+        split_id, split_path = data_processing.train_val_test(
+            data_path=use_path,
+            ratios=ratios,  # type: ignore  # list instead of tuple
             out_path=arg.split,
             seed=arg.seed,
         )
-        result_dict["2"] = ("[job_id]", Path(split_path), "new path")  # TODO
+        result["ratios"] = ratios
+        result["seed"] = arg.seed
+        result["2"] = (split_id, Path(split_path))
+    else:
+        split_path = None  # set to None for next stages
+        # if not splitting, set ratios and seed to None for registering job
+        result["ratios"] = [None, None, None]
+        result["seed"] = None
+        result["2"] = None
 
-    if 3 in stages:
+    if 3 in stages:  # normalization
+        # determine which input path to use for normalization
+        if split_path:
+            use_path = split_path
+        else:
+            use_path = arg.split
+            result["starting_dataset_path"] = arg.split
         # run normalization
-        normed_path = data_processing.normalize_data(data_path=arg.split)
-        result_dict["3"] = ("[job_id]", Path(normed_path), "in place")  # TODO
+        normed_id, normed_path, stats_path = data_processing.normalize_data(
+            data_path=use_path
+        )
+        result["norm_method"] = arg.norm_method
+        result["3"] = (normed_id, Path(normed_path))
+    else:
+        normed_path = None  # set to None for next stages
+        # if not normalizing, set attributes to None for registering job
+        result["norm_method"] = None
+        result["3"] = None
 
-    return result_dict
+    if 4 in stages:  # conversion to new file format
+        # determine which input path to use for conversion
+        if normed_path:
+            use_path = normed_path
+        else:
+            use_path = arg.split
+            result["starting_dataset_path"] = arg.split
+        # run conversion to new file format
+        converted_id, converted_path = data_processing.convert_to_jpeg(
+            data_path=use_path, quality=arg.quality, out_path=arg.converted
+        )
+        result["jpeg_quality"] = arg.quality
+        result["4"] = (converted_id, Path(converted_path))
+    else:
+        converted_path = None  # set to None for consistency
+        # if not converting, set quality to None for registering job
+        result["jpeg_quality"] = None
+        result["4"] = None
+
+    # clean up intermediate dataset if specified and splitting was run
+    if arg.cleanup:
+        result["cleanup"] = True
+
+        # if resizing and splitting were run, clean up resized dataset
+        if resized_path and split_path:
+            clean_up_intermediate_dataset(data_path=resized_path)
+
+        # if splitting and conversion were run, clean up split dataset
+        if split_path and converted_path:
+            clean_up_intermediate_dataset(data_path=split_path)
+    else:
+        result["cleanup"] = False
+
+    # get end time to store in database
+    result["end_time"] = get_time()
+
+    # register the job in the postgres database
+    returned_job_id = register_processing_job(
+        result_dict=result, notes=arg.notes
+    )
+
+    # check if the job ID returned from the database matches the one generated
+    assert returned_job_id == job_id, "Database returned unexpected job ID"
+
+    logger.info_("Finished running job %s!", job_id)
+    return result
 
 
 if __name__ == "__main__":
-    args = parser.parse_args()  # get command line argument for data_path
+    logger.debug_("Running run_data_processing.py...")
 
-    result = run(arg=args)  # run data processing pipeline
+    # get command line argument for data_path
+    args = parser.parse_args()
+
+    # run data processing pipeline
+    result_dict = run(arg=args)
+
+    logger.debug_("Finished runnning run_data_processing.py!")

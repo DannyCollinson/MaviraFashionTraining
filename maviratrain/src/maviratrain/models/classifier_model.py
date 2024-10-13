@@ -1,18 +1,16 @@
-"""Defines the model used for Classifier training"""
+""" Module defining the model used for Classification. """
 
-from typing import Any, Union
+from typing import Any
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+# import torch
+# import torch.nn as nn
+# import torch.nn.functional as F
 from torchvision.models import VisionTransformer
 
 from maviratrain.utils.general import get_device
 
 
-def create_vit(
-    vit_kwargs: Union[dict[str, Any], None] = None
-) -> VisionTransformer:
+def create_vit(vit_kwargs: dict[str, Any] | None = None) -> VisionTransformer:
     """
     Create a ViT model with the given kwargs as defined here:
     https://github.com/pytorch/vision/blob/a59c93980d97f6216917415ae25f3ac88e64cbb4/torchvision/models/vision_transformer.py#L160
@@ -21,8 +19,8 @@ def create_vit(
         vit_kwargs (dict[str, Any]): kwargs for the PyTorch ViT class
 
     Returns:
-        VisionTransformer: the specified ViT model that has been moved to the
-            available device (cuda or cpu)
+        VisionTransformer: the specified ViT model that has been moved
+            to the available device (cuda, mps, or cpu)
     """
     image_size = 224
     patch_size = 16

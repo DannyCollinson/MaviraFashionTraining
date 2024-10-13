@@ -7,7 +7,7 @@
     ],
     "python.testing.unittestEnabled": false,
     "python.testing.pytestEnabled": true,
-    "python.analysis.typeCheckingMode": "standard",
+    "python.analysis.typeCheckingMode": "strict",
     "[python]": {
         "editor.defaultFormatter": "ms-python.black-formatter"
     },
@@ -20,15 +20,12 @@
     ],
     "autoDocstring.startOnNewLine": true,
     "isort.check": true,
-    "sqltools.connections": [
-        {
-            "previewLimit": 50,
-            "server": "localhost",
-            "port": 5432,
-            "driver": "PostgreSQL",
-            "name": "mavirafashiontrainingdb",
-            "database": "mavirafashiontrainingdb",
-            "username": "mavira"
-        }
-    ]
+    "python.analysis.diagnosticSeverityOverrides": {
+        "reportMissingTypeArgument": "none",
+        "reportMissingTypeStubs": "none",
+        "reportUnknownArgumentType": "none",
+        "reportUnknownMemberType": "none",
+        "reportUnknownParameterType": "none",
+        "reportUnknownVariableType": "none",
+    },
 }

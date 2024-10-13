@@ -1,14 +1,13 @@
-"""File defining the dataset for Mavira's MAE training"""
+""" Module defining the dataset class for Mavira's MAE training. """
 
 from pathlib import Path
-from typing import Union
 
 import torch
 from torch import Tensor
 from torchvision.datasets import DatasetFolder
 from torchvision.transforms.v2 import RandomHorizontalFlip
 
-from ..utils.general import get_device, is_valid_directory
+from ..utils.general import get_device, is_valid_dataset
 
 
 class MAEDataset(DatasetFolder):
@@ -18,12 +17,12 @@ class MAEDataset(DatasetFolder):
     Subclasses PyTorch's Dataset class
     """
 
-    def __init__(self, data_path: Union[Path, str]) -> None:
+    def __init__(self, data_path: Path | str) -> None:
         """
         Initializes dataset by specifying the path to the data
 
         Arguments:
-            data_path {Union[Path, str]} -- path to the image data
+            data_path {Path | str} -- path to the image data
         """
         # super is DatasetFolder, which inherits from VisionDataset
         super().__init__(
@@ -33,12 +32,12 @@ class MAEDataset(DatasetFolder):
             transform=RandomHorizontalFlip,
         )
 
-        is_valid_directory(data_path=data_path)  # check data directory
+        assert is_valid_dataset(data_path=data_path)  # check dataset directory
 
         # set object's attribute as pathlib Path
         if isinstance(data_path, str):
             self.data_path = Path(data_path)
-        elif isinstance(data_path, Path):
+        else:
             self.data_path = data_path
 
         # self.classes is list[str] of class names
