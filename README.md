@@ -1,3 +1,9 @@
+# Important
+This is a copy of the Mavira FashionTraining repository written solely by Danny Collinson for the purposes of providing a personal code sample. No permissions are granted to anyone outside of Mavira except for those outlined in GitHub's Terms of Use.
+
+This repository is a work in progress and will be updated periodically as changes to the parent repository are made.
+
+
 # Training your Personal Fashion Stylist
 
 The code here is for training the models used for the AI fashion assistant. It includes the `maviratrain` package.
