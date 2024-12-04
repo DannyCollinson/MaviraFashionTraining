@@ -2,6 +2,7 @@
 
 import argparse
 import os
+from subprocess import run
 
 from maviratrain.utils.general import get_logger
 
@@ -40,10 +41,6 @@ parser.add_argument(
 if __name__ == "__main__":
     args = parser.parse_args()  # get command line arguments
 
-    # have to escape the * for the command to work
-    if args.regex == "*.zip":
-        args.regex = r"\*.zip"
-
     logger.info_(
         "Unzipping files matching %s at %s to %s...",
         args.regex,
@@ -52,9 +49,21 @@ if __name__ == "__main__":
     )
 
     # run the unzip command
-    os.system(
-        f"unzip -u "
-        f"{os.path.join(args.zipped_path, args.regex)} -d {args.unzip_path}"
+    # exclude .DS_Store files macOS creates and duplicate images
+    run(
+        [
+            "unzip",
+            "-u",
+            "-q",
+            os.path.join(args.zipped_path, args.regex),
+            "-d",
+            args.unzip_path,
+            "-x",
+            "**/.DS_Store",
+            "**/*([0-9]).jpg",
+            "**/*([0-9]).png",
+        ],
+        check=True,
     )
 
     logger.info_("Unzipping complete!")

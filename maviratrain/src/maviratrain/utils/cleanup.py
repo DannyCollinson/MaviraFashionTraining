@@ -2,8 +2,8 @@
 Utility functions for resetting/clearing logs, checkpoints, etc.
 """
 
-import os
 from pathlib import Path
+from subprocess import run
 
 from .general import get_logger
 
@@ -23,7 +23,7 @@ def clean_up_intermediate_dataset(data_path: Path | str) -> None:
     logger.debug_("Deleting intermediate dataset at %s...", data_path)
 
     # delete the intermediate dataset directory
-    os.system(f"rm -r {data_path}")
+    run(["rm", "-r", data_path], check=True)
 
     logger.debug_("Removed intermediate dataset!")
 
@@ -39,7 +39,7 @@ def clean_up_checkpoint(checkpoint_path: Path | str) -> None:
     logger.debug_("Deleting checkpoint at %s", checkpoint_path)
 
     # delete the checkpoint
-    os.system(f"rm {checkpoint_path}")
+    run(["rm", checkpoint_path], check=True)
 
 
 def clean_up_checkpoints(checkpoint_dir: Path | str) -> None:

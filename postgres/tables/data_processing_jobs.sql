@@ -10,7 +10,7 @@ CREATE TABLE data_processing_jobs (
     -- time that the job was started
     start_time TIMESTAMP WITH TIME ZONE NOT NULL,
     -- time that the job was stopped or completed training
-    end_time TIMESTAMP WITH TIME ZONE NOT NULL,
+    end_time TIMESTAMP WITH TIME ZONE DEFAULT NULL,
     -- boolean for whether or not filename cleaning is performed
     cleaning BOOLEAN NOT NULL,
     -- boolean for whether or not resizing is performed
@@ -35,8 +35,14 @@ CREATE TABLE data_processing_jobs (
     normalized_dataset_id INT DEFAULT NULL,
     -- the dataset id for the post-format conversion dataset
     converted_dataset_id INT DEFAULT NULL,
+    -- the height of the resized images
+    resize_height SMALLINT DEFAULT NULL,
+    -- the width of the resized images
+    resize_width SMALLINT DEFAULT NULL,
     -- the interpolation method used for resizing
     interpolation CHAR(13) DEFAULT NULL,
+    -- random seed used for splitting the dataset
+    seed INT DEFAULT NULL,
     -- whether or not any intermediate datasets are cleaned up
     cleanup BOOLEAN NOT NULL,
     -- the percentage of the dataset allocated for training
@@ -66,5 +72,5 @@ CREATE TABLE data_processing_jobs (
     -- set the normalization method as a foreign key
     FOREIGN KEY (norm_method) REFERENCES normalization_methods (method),
     -- set the conversion format as a foreign key
-    FOREIGN KEY (conversion_format) REFERENCES valid_file_formats (format)
+    FOREIGN KEY (conversion_format) REFERENCES file_formats (format)
 );

@@ -6,11 +6,12 @@ from collections.abc import Callable
 from pathlib import Path
 
 from dotenv import load_dotenv
+from numpy import ndarray, save as numpy_save
 from psycopg import connect
 from torch.backends.mps import is_available as is_mps_available
 from torch.cuda import is_available as is_cuda_available
 
-from .constants import LOAD_FUNCS
+from .constants import EXTENSION_TO_SAVE_FUNC, LOAD_FUNCS, SAVE_FUNCS
 from .mavira_logging import MaviraTrainLogger
 
 
@@ -131,11 +132,14 @@ def is_valid_directory(
 
 
 def is_valid_dataset(
-    data_path: Path | str, outside_logger: MaviraTrainLogger | None = None
+    data_path: Path | str,
+    split_test: bool = False,
+    outside_logger: MaviraTrainLogger | None = None,
 ) -> bool:
     """
     Verifies that data_path points to a subdirectory of the
-    "data" directory
+    "data" directory. Optionally verifies that
+    there are train, val, and test subdirectories.
 
     Args:
         data_path (Path | str): path to check
@@ -167,6 +171,26 @@ def is_valid_dataset(
         f'of the "data" directory. Got {data_path}.'
     )
 
+    # if split_test is True, make sure there are train, val, and test
+    if split_test:
+        res = (
+            os.path.isdir(os.path.join(data_path, "train"))
+            and os.path.isdir(os.path.join(data_path, "val"))
+            and os.path.isdir(os.path.join(data_path, "test"))
+        )
+
+        # log error if logger is provided
+        if not res and outside_logger:
+            outside_logger.error_(
+                "Expected data_path to have "
+                "subdirectories 'train', 'val', and 'test'."
+            )
+
+        assert res, (
+            "Expected data_path to have "
+            "subdirectories 'train', 'val', and 'test'."
+        )
+
     return res
 
 
@@ -187,7 +211,7 @@ def get_dataset_extension(data_path: Path | str) -> str:
     # assuming all files have the same extension
     for _, _, files in os.walk(data_path):
         for file in files:
-            return str(os.path.splitext(file)[1])
+            return str(os.path.splitext(file)[1])[1:]  # ignore the dot
 
     # if no files are found, raise an error
     raise FileNotFoundError(f"No files found under {data_path}.")
@@ -210,9 +234,7 @@ def get_loading_function(extension: str) -> Callable:
     with connect(postgres_connection_string) as conn:
         with conn.cursor() as curs:
             # get valid extensions for cleaned images
-            curs.execute(
-                "SELECT format, loading_func FROM valid_file_formats;"
-            )
+            curs.execute("SELECT format, load_func FROM file_formats;")
             res = curs.fetchall()
             if len(res) == 0:
                 message = "No valid extensions found"
@@ -235,14 +257,87 @@ def get_loading_function(extension: str) -> Callable:
     assert load_func_name in LOAD_FUNCS, (
         f"Could not find loading function for extension '{extension}'. "
         "Perhaps the loading function must be added "
-        "to the constant LOAD_FUNCS dictionary in this script, "
-        "and/or the entries in the database "
-        "and in dictionaries must be consistent."
+        "to the constant LOAD_FUNCS dictionary "
+        "in the constants.py script, and/or "
+        "the entries in the database and "
+        "dictionaries must be consistent."
     )
 
     load_func = LOAD_FUNCS[loading_funcs[extension]]
 
     return load_func
+
+
+def np_save(array: ndarray, path: Path | str) -> None:
+    """
+    Provides a saving function for numpy arrays
+    with a consistent interface with torch.save,
+    i.e., swaps the order of the arguments
+
+    Args:
+        array (dict): NumPy array to save
+        path (Path | str): path to save the array to
+    """
+    numpy_save(path, array)
+
+
+def get_save_function(extension: str) -> Callable:
+    """
+    Returns the saving function corresponding to the file extension
+
+    Args:
+        extension (str): file extension, e.g., "npy", "pt"
+
+    Returns:
+        Callable: saving function corresponding to the file extension
+    """
+    # get valid extensions and associated saving functions for cleaned images
+    postgres_connection_string = get_postgres_connection_string()
+    # pylint has a false positive when using psycopg 3's context managers
+    # pylint: disable=not-context-manager
+    with connect(postgres_connection_string) as conn:
+        with conn.cursor() as curs:
+            # get valid extensions for cleaned images
+            curs.execute("SELECT format, save_func FROM file_formats;")
+            res = curs.fetchall()
+            if len(res) == 0:
+                message = "No valid extensions found"
+                logger.error_("%s", message)
+                raise RuntimeError(message)
+            # save valid extensions as set
+            valid_extensions = {ext[0] for ext in res}
+            # save functions as dictionary
+            save_funcs = {ext[0]: ext[1] for ext in res}
+    # pylint: enable=not-context-manager
+
+    # make sure the extension is valid
+    assert extension in valid_extensions, (
+        "Dataset is in invalid format. "
+        f"Found {extension}, but valid extensions are {valid_extensions}"
+    )
+
+    # set the saving function based on the extension
+    save_func_name = save_funcs[extension]
+    assert save_func_name in SAVE_FUNCS, (
+        f"Could not find saving function for extension '{extension}'. "
+        "Perhaps the save function must be added "
+        "to the constant SAVE_FUNCS and EXTENSION_TO_SAVE_FUNC"
+        "dictionaries in the constants.py script, and/or "
+        "the entries in the database and "
+        "dictionaries must be consistent."
+    )
+
+    # exclude jpg and jpeg files for now
+    if extension in ["jpg", "jpeg"]:
+        message = "JPG and JPEG files are not supported for saving yet."
+        logger.error_("%s", message)
+        raise NotImplementedError(message)
+
+    save_func = EXTENSION_TO_SAVE_FUNC[extension]
+
+    # ignore type because MyPy says that save_func is a function
+    # instead of a Callable, but a function is a Callable
+    return save_func  # type: ignore
 
 
 def get_device(
@@ -332,13 +427,14 @@ def get_postgres_connection_string(
     return connection_string
 
 
-def get_data_processing_job_id() -> int:
+def get_data_processing_job_id(new: bool = False) -> int:
     """
-    Gets the next job ID from the database,
-    i.e., the most recent job ID + 1
+    Gets the most recent job ID from the database.
+    If new is True, returns the next job ID,
+    i.e., the most recent job ID plus 1.
 
     Returns:
-        int: the most recent job ID
+        int: the most recent (next if new is True) job ID
     """
     job_id = -1  # placeholder for job_id
     postgres_connection_string = get_postgres_connection_string()
@@ -352,10 +448,49 @@ def get_data_processing_job_id() -> int:
             # but Pylance expects just None
             # this happens because we are using the MAX function
             if res[0]:  # type: ignore
-                job_id = res[0] + 1  # type: ignore
+                job_id = res[0]  # type: ignore
             else:
+                assert new, (
+                    "No jobs found, but new is False. "
+                    "This should only happen if no jobs have been run yet, "
+                    "in which case new should be True."
+                )
                 # if no jobs have been run yet, start at 1
-                job_id = 1
+                job_id = 0
     # pylint: enable=not-context-manager
 
+    # if getting a job ID for a job before it starts, increment the job ID
+    if new:
+        job_id += 1
+
     return job_id
+
+
+def get_dataset_id(data_path: Path | str) -> int:
+    """
+    Gets the dataset ID from the database
+
+    Args:
+        data_path (Path | str): path to the dataset directory
+
+    Returns:
+        int: the dataset ID
+    """
+    dataset_id = -1  # placeholder for dataset_id
+    postgres_connection_string = get_postgres_connection_string()
+    # pylint has a false positive when using psycopg 3's context managers
+    # pylint: disable=not-context-manager
+    with connect(postgres_connection_string) as conn:
+        with conn.cursor() as curs:
+            curs.execute(
+                "SELECT id FROM datasets WHERE path = %s;", (str(data_path),)
+            )
+            res = curs.fetchone()
+            if res:
+                dataset_id = res[0]
+            else:
+                # if no dataset is found, raise an error
+                raise FileNotFoundError(f"No dataset found at {data_path}.")
+    # pylint: enable=not-context-manager
+
+    return dataset_id

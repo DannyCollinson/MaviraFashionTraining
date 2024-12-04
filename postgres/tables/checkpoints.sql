@@ -9,7 +9,7 @@ CREATE TABLE checkpoints (
     id BIGINT GENERATED ALWAYS AS IDENTITY,
     -- the name of the directory that the checkpoint
     -- is saved to relative to the project directory
-    dir VARCHAR(300) NOT NULL,
+    checkpoint_path VARCHAR(300) NOT NULL,
     -- name of the file that the checkpoint is saved to
     fname VARCHAR(300) NOT NULL,
     -- time that the checkpoint was created

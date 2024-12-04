@@ -45,7 +45,7 @@ CREATE TABLE datasets (
     -- set the dataset id as the primary key
     PRIMARY KEY (id),
     -- set the filename extension as a foreign key
-    FOREIGN KEY (extension) REFERENCES valid_file_formats (format),
+    FOREIGN KEY (extension) REFERENCES file_formats (format),
     -- set the normalization method as a foreign key
     FOREIGN KEY (norm_method) REFERENCES normalization_methods (method),
     -- add a unique constraint accross all other columns

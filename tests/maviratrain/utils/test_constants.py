@@ -1,4 +1,4 @@
-""" A placeholder file for the tests directory. """
+""" Tests for the maviratrain.utils.constants module. """
 
 
 def test_placeholder():

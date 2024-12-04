@@ -10,6 +10,7 @@ from maviratrain.utils.general import get_logger, get_time
 from maviratrain.utils.registration.register_data import (
     get_dataset_id,
     register_processing_job,
+    update_processing_job,
 )
 
 # set up logger
@@ -27,7 +28,7 @@ parser = argparse.ArgumentParser(
 parser.add_argument(
     "stage",
     type=int,
-    choices=[-1, 0, 1, 2, 3, 4, 34],
+    choices=[-1, 0, 1, 2, 3, 4],
     help=(
         "Specifies after which stage the processing pipeline"
         "should stop. If -1, then the whole processing pipeline is run "
@@ -36,10 +37,8 @@ parser.add_argument(
         "on the data at --raw; all other options are ignored. "
         "If 1, then processing runs through resizing only; "
         "if 2, processing runs through train/val/test splitting; "
-        "if 3, processing is run through normalization; "
-        "if 4, only file format conversion is performed; and "
-        "if 34, then only normalization and "
-        "file format conversion are performed. "
+        "if 3, processing is run through normalization; and "
+        "if 4, processing runs through file format conversion. "
         "All unnecessary options are ignored."
     ),
 )
@@ -80,11 +79,20 @@ parser.add_argument(
         "If stage is 3, then --split is the path "
         "to already split data that is to be normalized. "
         "If stage is 4, then --split is the path to the data to be "
-        "converted to a new format, which is assumed "
-        "to have already been normalized. "
-        "If stage is 34, then --split is the path to split data "
-        "to be normalized and converted to a new format. "
+        "normalized and converted to a new format. "
         "Defaults to [--resized]-s[job_id] if --resized is specified."
+    ),
+    default=None,
+)
+parser.add_argument(
+    "--normalized",
+    type=str,
+    help=(
+        "String. If --raw or --resized or --split are specified, "
+        "then --normalized is interpreted as the path to place data at "
+        "after being normalized. If stage is equal to 4, then "
+        "--normalized is the path to the data to be converted. "
+        "Defaults to [--split]-n[job_id] if --split is specified."
     ),
     default=None,
 )
@@ -92,12 +100,10 @@ parser.add_argument(
     "--converted",
     type=str,
     help=(
-        "String. If --raw or --resized or --split are specified, "
-        "then --converted is interpreted as the path to place data at "
-        "after being converted to a new format. If stage is equal "
-        "to 4, then --split is the path to the data to be converted, "
-        "which is assumed to have already been normalized. "
-        "Defaults to [--split]-c[job_id] if --split is specified."
+        "String. If --raw, --resized, --split, or --normalized are "
+        "specified, then --converted is interpreted as the path to "
+        "place data at after being converted to a new format. Defaults "
+        "to [--normalized]-c[job_id] if --normalized is specified."
     ),
     default=None,
 )
@@ -136,9 +142,18 @@ parser.add_argument(
         "String. String containing three numbers formatted "
         "as 'x/y/z' such that x+y+z = 100. "
         "Determines the train/val/test ratios. "
-        "Defaults to '60/15/25'."
+        "Defaults to '64/16/20'."
     ),
-    default="60/15/25",
+    default="64/16/20",
+)
+parser.add_argument(
+    "--seed",
+    type=int,
+    help=(
+        "Integer. Seed to use for python's random number generation. "
+        "Defaults to 42."
+    ),
+    default=42,
 )
 parser.add_argument(
     "--norm_method",
@@ -146,18 +161,20 @@ parser.add_argument(
     help=(
         "String. Name of the normalization method to use. "
         "Current options are "
-        "'zscore', 'minmax', 'pixelz' 'minmaxplus', and 'none'. "
+        "'zscore', 'pixelz', 'localz', 'minmax', 'minmaxextended', "
+        "'localminmax', and localminmaxextended. "
         "Ignored if not performing normalization. "
         "Defaults to 'zscore'."
     ),
     default="zscore",
 )
 parser.add_argument(
-    "--format",
+    "--final_format",
     type=str,
     help=(
         "String. Format to convert images to, given as a filename "
         "extension. Ignored if not performing conversion. "
+        "If the same as the working format, then no changes are made. "
         "Defaults to 'npy', for numpy array."
     ),
     default="npy",
@@ -172,6 +189,17 @@ parser.add_argument(
     default=95,
 )
 parser.add_argument(
+    "--working_format",
+    type=str,
+    help=(
+        "String. Format that the data will be saved as after "
+        "resizing and subsequent intermediate stages, given as a "
+        "filename extension. Ignored if only performing conversion."
+        "Defaults to 'npy', for numpy array."
+    ),
+    default="npy",
+)
+parser.add_argument(
     "-c",
     "--cleanup",
     type=int,
@@ -182,15 +210,6 @@ parser.add_argument(
         "Defaults to 0 (no deletion)."
     ),
     default=0,
-)
-parser.add_argument(
-    "--seed",
-    type=int,
-    help=(
-        "Integer. Seed to use for python's random number generation. "
-        "Defaults to 42."
-    ),
-    default=42,
 )
 parser.add_argument(
     "--notes",
@@ -223,25 +242,31 @@ def get_stages(arg: argparse.Namespace) -> list[int]:
 
     # if -1, run whole pipeline
     if arg.stage == -1:
-        assert arg.raw is not None, "If stage=-1, --raw must be specified"
+        assert (
+            arg.raw is not None and arg.raw != "None"
+        ), "If stage=-1, --raw must be specified"
         stages.extend([0, 1, 2, 3, 4])
 
     # if stage is 0, run only name cleaning
     elif arg.stage == 0:
-        assert arg.raw is not None, "If stage=0, --raw must be specified"
+        assert (
+            arg.raw is not None and arg.raw != "None"
+        ), "If stage=0, --raw must be specified"
         stages.append(0)  # only run name cleaning
 
     # if stage is 1, the path is still specified by --raw, but no name cleaning
     elif arg.stage == 1:
-        assert arg.raw is not None, "If stage=1, --raw must be specified"
+        assert (
+            arg.raw is not None and arg.raw != "None"
+        ), "If stage=1, --raw must be specified"
         stages.append(1)  # only run resizing
 
     # if stage is 2, check if raw and/or resized are provided
     elif arg.stage == 2:
-        assert (
-            arg.raw is not None or arg.resized is not None
+        assert (arg.raw is not None and arg.raw != "None") or (
+            arg.resized is not None and arg.resized != "None"
         ), "If stage=2, either --raw or --resized must be provided"
-        if arg.raw is not None:
+        if arg.raw is not None and arg.raw != "None":
             stages.extend([0, 1, 2])  # run up through splitting
         else:
             stages.append(2)  # only run splitting
@@ -249,35 +274,36 @@ def get_stages(arg: argparse.Namespace) -> list[int]:
     # if stage is 3, check if raw, resized, or split are provided
     elif arg.stage == 3:
         assert (
-            arg.raw is not None
-            or arg.resized is not None
-            or arg.split is not None
+            (arg.raw is not None and arg.raw != "None")
+            or (arg.resized is not None and arg.resized != "None")
+            or (arg.split is not None and arg.split != "None")
         ), "If stage=3, either --raw, --resized, or --split must be provided"
-        if arg.raw is not None:
+        if arg.raw is not None and arg.raw != "None":
             stages.extend([0, 1, 2, 3])  # run from beginning
-        elif arg.resized is not None:
+        elif arg.resized is not None and arg.resized != "None":
             stages.extend([2, 3])  # run starting with splitting
         else:
             stages.append(3)  # only run normalization
 
-    # if stage is 4, check if raw, resized, split, or converted are provided
+    # if stage is 4, check all possible paths
     elif arg.stage == 4:
         assert (
-            arg.raw is not None
-            or arg.resized is not None
-            or arg.split is not None
-        ), "If stage=4, either --raw, --resized, or --split must be provided"
-        if arg.raw is not None:
+            (arg.raw is not None and arg.raw != "None")
+            or (arg.resized is not None and arg.resized != "None")
+            or (arg.split is not None and arg.split != "None")
+            or (arg.normalized is not None and arg.normalized != "None")
+        ), (
+            "If stage=4, either --raw, --resized, "
+            "--split, or --normalized must be provided"
+        )
+        if arg.raw is not None and arg.raw != "None":
             stages.extend([0, 1, 2, 3, 4])  # run from beginning
-        elif arg.resized is not None:
+        elif arg.resized is not None and arg.resized != "None":
             stages.extend([2, 3, 4])  # run starting with splitting
+        elif arg.split is not None and arg.split != "None":
+            stages.extend([3, 4])  # run starting with normalization
         else:
             stages.extend([4])  # run only conversion
-
-    # if stage is 34, check if split or converted are provided
-    elif arg.stage == 34:
-        assert arg.split is not None, "If stage=34, --split must be provided"
-        stages.extend([3, 4])  # run normalization and conversion
 
     logger.debug_("Determined stages to run: %s", stages)
     return stages
@@ -298,25 +324,31 @@ def run(arg: argparse.Namespace) -> dict[str, Any]:
     """
     # store results in a dictionary
     result: dict[str, Any] = {}
+    preregistration_dict: dict[str, Any] = {}
 
     # get job ID based on the previous job ID
-    job_id = data_processing.get_data_processing_job_id()
+    job_id = data_processing.get_data_processing_job_id(new=True)
     result["job_id"] = job_id
 
     logger.info_("Running data processing pipeline with job ID %s...", job_id)
 
     # get start time to store in database
     result["start_time"] = get_time()
+    preregistration_dict["start_time"] = result["start_time"]
+
+    # set end time to None for preregistration
+    preregistration_dict["end_time"] = None
 
     # determine which stages need to be run
     stages = get_stages(arg)
     result["stages"] = stages
+    preregistration_dict["stages"] = stages
 
     # store the raw data path in the result dictionary
     result["raw_path"] = arg.raw
 
     # try to get the starting dataset id from the database using the raw path
-    if arg.raw is not None:
+    if arg.raw is not None and arg.raw != "None":
         try:
             result["starting_dataset_id"] = get_dataset_id(data_path=arg.raw)
         except RuntimeError as e:
@@ -324,6 +356,45 @@ def run(arg: argparse.Namespace) -> dict[str, Any]:
             logger.error_(str(e))
     else:
         result["starting_dataset_id"] = None
+
+    # determine the starting dataset path based on the stages to run
+    if 0 in stages:
+        result["starting_dataset_path"] = arg.raw
+    elif 1 in stages:
+        result["starting_dataset_path"] = arg.raw
+    elif 2 in stages:
+        result["starting_dataset_path"] = arg.resized
+    elif 3 in stages:
+        result["starting_dataset_path"] = arg.split
+    elif 4 in stages:
+        result["starting_dataset_path"] = arg.normalized
+    preregistration_dict["starting_dataset_path"] = result[
+        "starting_dataset_path"
+    ]
+
+    # add run metadata to the preregistration dictionary
+    preregistration_dict["0"] = None
+    preregistration_dict["1"] = None
+    preregistration_dict["2"] = None
+    preregistration_dict["3"] = None
+    preregistration_dict["4"] = None
+    preregistration_dict["resize_height"] = arg.height
+    preregistration_dict["resize_width"] = arg.width
+    preregistration_dict["interpolation"] = arg.interp
+    preregistration_dict["cleanup"] = bool(arg.cleanup)
+    preregistration_dict["ratios"] = [
+        int(num) for num in arg.ratios.split("/")
+    ]
+    preregistration_dict["stats_path"] = None
+    preregistration_dict["norm_method"] = arg.norm_method
+    preregistration_dict["conversion_format"] = arg.final_format
+    preregistration_dict["jpeg_quality"] = arg.quality
+    preregistration_dict["seed"] = arg.seed
+
+    # register the job in the postgres database
+    preregistration_job_id = register_processing_job(
+        result_dict=preregistration_dict, notes=arg.notes
+    )
 
     # run the specified stages
     if 0 in stages:  # name cleaning
@@ -350,8 +421,11 @@ def run(arg: argparse.Namespace) -> dict[str, Any]:
             data_path=use_path,
             size=(arg.height, arg.width),
             interpolation=arg.interp,
+            save_format=arg.working_format,
             out_path=arg.resized,
         )
+        result["resize_height"] = arg.height
+        result["resize_width"] = arg.width
         result["interpolation"] = arg.interp
         result["1"] = (resized_id, Path(resized_path))
     else:
@@ -393,30 +467,63 @@ def run(arg: argparse.Namespace) -> dict[str, Any]:
             use_path = arg.split
             result["starting_dataset_path"] = arg.split
         # run normalization
-        normed_id, normed_path, stats_path = data_processing.normalize_data(
-            data_path=use_path
+        _, normed_id, normed_path, stats_path = data_processing.normalize_data(
+            data_path=use_path, method=arg.norm_method, out_path=arg.normalized
         )
         result["norm_method"] = arg.norm_method
         result["3"] = (normed_id, Path(normed_path))
+        result["stats_path"] = stats_path
     else:
         normed_path = None  # set to None for next stages
         # if not normalizing, set attributes to None for registering job
         result["norm_method"] = None
         result["3"] = None
+        result["stats_path"] = None
 
     if 4 in stages:  # conversion to new file format
-        # determine which input path to use for conversion
-        if normed_path:
-            use_path = normed_path
+        # skip conversion if the working format is the same as the final format
+        if 1 in stages and arg.working_format == arg.final_format:
+            converted_path = None
+            result["4"] = None
+            result["jpeg_quality"] = None
+            logger.info_(
+                "Skipping conversion because the working format "
+                "is the same as the final format."
+            )
         else:
-            use_path = arg.split
-            result["starting_dataset_path"] = arg.split
-        # run conversion to new file format
-        converted_id, converted_path = data_processing.convert_to_jpeg(
-            data_path=use_path, quality=arg.quality, out_path=arg.converted
-        )
-        result["jpeg_quality"] = arg.quality
-        result["4"] = (converted_id, Path(converted_path))
+            # determine which input path to use for conversion
+            if normed_path:
+                use_path = normed_path
+            else:
+                use_path = arg.normalized
+                result["starting_dataset_path"] = arg.normalized
+            # run conversion to new file format
+            if arg.final_format == "npy":
+                _, converted_dataset_id, converted_path = (
+                    data_processing.convert_to_numpy(
+                        data_path=use_path, out_path=arg.converted
+                    )
+                )
+            elif arg.final_format == "pt":
+                _, converted_dataset_id, converted_path = (
+                    data_processing.convert_to_pytorch(
+                        data_path=use_path, out_path=arg.converted
+                    )
+                )
+            elif arg.final_format == "jpeg":
+                _, converted_dataset_id, converted_path = (
+                    data_processing.convert_to_jpeg(
+                        data_path=use_path,
+                        quality=arg.quality,
+                        out_path=arg.converted,
+                    )
+                )
+                result["jpeg_quality"] = arg.quality
+            else:
+                raise ValueError(
+                    f"Unsupported final format: {arg.final_format}"
+                )
+            result["4"] = (converted_dataset_id, Path(converted_path))
     else:
         converted_path = None  # set to None for consistency
         # if not converting, set quality to None for registering job
@@ -440,9 +547,9 @@ def run(arg: argparse.Namespace) -> dict[str, Any]:
     # get end time to store in database
     result["end_time"] = get_time()
 
-    # register the job in the postgres database
-    returned_job_id = register_processing_job(
-        result_dict=result, notes=arg.notes
+    # update the preregistered job with the final information
+    returned_job_id = update_processing_job(
+        result_dict=result, job_id=preregistration_job_id
     )
 
     # check if the job ID returned from the database matches the one generated

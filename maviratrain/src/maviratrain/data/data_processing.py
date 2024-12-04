@@ -6,19 +6,33 @@ and generating train/val/test splits.
 import os
 import random
 import re
+from collections.abc import Callable
 from pathlib import Path
+from subprocess import run
 
 import torch
+from numpy import load as np_load
 from PIL import Image
 from psycopg import connect
 from torchvision.io import ImageReadMode, decode_image
 from torchvision.transforms.v2 import InterpolationMode, Resize
 
+from .normalization import (
+    minmax_extended_normalize,
+    minmax_normalize,
+    pixelz_normalize,
+    zscore_normalize,
+    local_minmax_normalize,
+    local_minmax_extended_normalize,
+    local_zscore_normalize,
+)
 from ..utils.general import (
     get_data_processing_job_id,
     get_logger,
     get_postgres_connection_string,
+    get_save_function,
     is_valid_dataset,
+    np_save,
 )
 from ..utils.registration.register_data import register_dataset
 
@@ -159,7 +173,7 @@ def clean_data_naming(
 
     # register the newly cleaned dataset to the database
     dataset_id = register_dataset(
-        data_path=data_path, notes="Cleaned up naming"
+        data_path=data_path, job_id=job_id, notes="Cleaned up naming"
     )
 
     logger.info_("Done cleaning data names!")
@@ -170,6 +184,7 @@ def resize_images(
     data_path: Path | str,
     size: tuple[int, int] = (224, 224),
     interpolation: str = "bilinear",
+    save_format: str = "npy",
     out_path: Path | str | None = None,
 ) -> tuple[int, Path]:
     """
@@ -181,6 +196,8 @@ def resize_images(
             images to. Defaults to (224, 224).
         interpolation (str, optional): torchvision interpolation mode to
             use for resizing images. Defaults to "bilinear".
+        format (str, optional): format to save resized images in.
+            Supported formats are 'npy' and 'pt'. Defaults to 'npy'.
         out_path (Path | str | None, optional): path to save resized
             images out to. Defaults to None.
 
@@ -192,7 +209,7 @@ def resize_images(
         tuple[int, Path]: the dataset ID and the path to the resized data
     """
     # specify default out_path if not given
-    job_id = get_data_processing_job_id()
+    job_id = get_data_processing_job_id(new=False)
     out_path = Path(str(data_path).removesuffix("/") + "-r" + str(job_id))
 
     logger.info_(
@@ -241,6 +258,9 @@ def resize_images(
         size=size, interpolation=interpolation_mode, antialias=True
     )
 
+    # get save function based on format
+    save_func = get_save_function(save_format)
+
     for cur_dir, sub_dirs, files in os.walk(data_path):
         # replicate the data_path subdirectory structure
         for sub_dir in sub_dirs:
@@ -260,12 +280,16 @@ def resize_images(
             file_subpath = file_subpath.removeprefix(str(data_path))
             # create new filepath as outpath/subpath
             new_filepath = os.path.join(out_path, file_subpath)
-            new_filepath = new_filepath.replace(".jpg", ".pt")
-            torch.save(im, new_filepath)
+            new_filepath = new_filepath.replace(".jpg", f".{save_format}")
+            # save using the specified format
+            save_func(im, new_filepath)
+
             logger.debug_("Resized %s and saved as %s", filepath, new_filepath)
 
     # register the newly created dataset to the database
-    dataset_id = register_dataset(data_path=out_path, notes="Resized images")
+    dataset_id = register_dataset(
+        data_path=out_path, job_id=job_id, notes="Resized images"
+    )
 
     logger.info_("Done resizing images!")
     return dataset_id, Path(out_path)
@@ -273,7 +297,7 @@ def resize_images(
 
 def train_val_test(
     data_path: Path | str,
-    ratios: tuple[int, int, int] = (60, 15, 25),
+    ratios: tuple[int, int, int] = (64, 16, 20),
     out_path: Path | str | None = None,
     seed: int = 42,
 ) -> tuple[int, Path]:
@@ -287,7 +311,7 @@ def train_val_test(
         ratios (tuple[int, int, int], optional): percentages of each
             class to split into train/val/test. Each must be >= 0
             and <= 100 and must have sum=100, e.g., (70, 10, 20) for 70%
-            train, 10% val, 20% test. Defaults to (60, 15, 25).
+            train, 10% val, 20% test. Defaults to (64, 16, 20).
         out_path (Path | str | None, optional): path where data
             should be split into. Defaults to data_path + '-s[job_id]'.
         seed (int, optional): seed for the python built-in random
@@ -297,7 +321,7 @@ def train_val_test(
         tuple[int, Path]: the dataset ID and the path to the split data
     """
     # specify default out_path if not given
-    job_id = get_data_processing_job_id()
+    job_id = get_data_processing_job_id(new=False)
     out_path = Path(str(data_path).removesuffix("/") + "-s" + str(job_id))
 
     logger.info_(
@@ -380,240 +404,21 @@ def train_val_test(
                 filepath = os.path.join(cur_dir, filename)
                 new_filepath = os.path.join(split_dir, filename)
                 # copy to new filepath
-                os.system(f"cp {filepath} {new_filepath}")
+                run(["cp", filepath, new_filepath], check=True)
                 logger.debug_("Copied %s to %s", filepath, new_filepath)
 
     # register the newly created dataset to the database
     dataset_id = register_dataset(
-        data_path=out_path, notes="Split into train/val/test"
+        data_path=out_path, job_id=job_id, notes="Split into train/val/test"
     )
 
     logger.info_("Done creating train/val/test splits!")
     return dataset_id, Path(out_path)
 
 
-# def collect_stats(
-#     data_path: Path | str,
-# ) -> tuple[Tensor, Tensor]:
-#     """
-#     Collects mean and standard deviations for the data
-
-#     Args:
-#         data_path (Path | str): path to top of data directory to
-#             collect stats
-
-#     Returns:
-#         tuple[Tensor, Tensor]: the mean and standard deviations
-#             for all three channels
-#     """
-#     logger.debug_("Collecting statistics for data at %s...", data_path)
-
-#     assert is_valid_dataset(data_path=data_path, outside_logger=logger)
-
-#     # initialize stats for tracking
-#     num_files = 0
-#     channel_means = torch.tensor([0.0, 0.0, 0.0])
-#     channel_stds = torch.tensor([0.0, 0.0, 0.0])
-
-#     # collect stats from training files
-#     for cur_dir, _, files in os.walk(os.path.join(data_path)):
-#         for file in files:
-#             filepath = os.path.join(cur_dir, file)
-#             im = torch.load(filepath, map_location="cpu", weights_only=True)
-#             num_files += 1
-#             channel_means += im.mean(dim=[1, 2])
-#             channel_stds += im.std(dim=[1, 2])
-#     channel_means /= num_files
-#     channel_stds /= num_files
-
-#     logger.debug_("Done collecting statistics!")
-#     return channel_means, channel_stds
-
-
-# def normalize_tensor(
-#     tensor: Tensor,
-#     means: Tensor,
-#     stds: Tensor,
-# ) -> Tensor:
-#     """
-#     Normalizes tensor by subtracting means
-#     and dividing by the standard deviations
-
-#     Args:
-#         tensor (Tensor): tensor to normalize
-#         means (Tensor): means for each channel
-#         stds (Tensor): standard deviations for each channel
-
-#     Returns:
-#         Tensor: the normalized tensor
-#     """
-#     means = means[:, None, None]
-#     stds = stds[:, None, None]
-#     return (tensor - means) / stds
-
-
-# def normalize_data(
-#     data_path: Path | str, method: str
-# ) -> tuple[int, Path, Path]:
-#     """
-#     Normalizes data in train, val, and test directories at data_path
-#     according to statistics of the train data by subtracting per-channel
-#     means and dividing by per-channel standard deviations
-
-#     Args:
-#         data_path (Path | str): path to top of data directory
-#         method (str): method to use for normalization. Supported methods
-#             are in the normalization_methods database table.
-
-#     Returns:
-#         tuple[int, Path, Path]: the resulting dataset id,
-#             the path to the normalized data,
-#             and the path to the statistics used for normalization
-#     """
-#     logger.info_(
-#         "Beginning dataset normalization at %s using %s...",
-#         data_path,
-#         method,
-#     )
-
-#     assert is_valid_dataset(data_path=data_path, outside_logger=logger)
-
-#     # get stats from training data
-#     channel_means, channel_stds = collect_stats(
-#         os.path.join(data_path, "train")
-#     )
-
-#     # log stats
-#     logger.debug_(
-#         "channel_means: %s, channel_stds: %s", channel_means, channel_stds
-#     )
-
-#     # normalize data in each split
-#     for split in ["train", "val", "test"]:
-#         for cur_dir, _, files in os.walk(os.path.join(data_path, split)):
-#             for file in files:
-#                 filepath = os.path.join(cur_dir, file)
-#                 im = torch.load(
-#                     filepath, map_location="cpu", weights_only=True
-#                 )
-#                 im = normalize_tensor(
-#                     tensor=im,
-#                     means=channel_means,
-#                     stds=channel_stds,
-#                 )
-#                 torch.save(im, f=filepath)
-#                 logger.debug_("Normalized %s", filepath)
-
-#     # register the newly normalized dataset to the database
-#     dataset_id = register_dataset(
-#         data_path=data_path, notes="Normalized data"
-#     )
-
-#     logger.info_("Done normalizing dataset!")
-#     return dataset_id, Path(data_path), Path(data_path)
-
-
-def minmax_normalize(data_path: Path | str) -> tuple[int, Path, None]:
-    """
-    Normalizes data in train, val, and test directories at data_path
-    by subtracting the minimum and dividing by the new maximum.
-    The minimum and maximum are assumed to be 0 and 255
-    for all channels,
-    and the data is assumed to be in .pt or .npy format.
-
-    Args:
-        data_path (Path | str): path to top of data directory
-
-    Returns:
-        tuple[int, Path, None]: the resulting dataset id,
-            the path to the normalized data,
-            and None as a placeholder for the statistics path
-    """
-    logger.info_(
-        "Beginning dataset normalization at %s using min-max method...",
-        data_path,
-    )
-
-    assert is_valid_dataset(data_path=data_path, outside_logger=logger)
-
-    return 0, Path(data_path), None
-
-
-def minmaxplus_normalize(data_path: Path | str) -> tuple[int, Path, None]:
-    """
-    Normalizes data in train, val, and test directories at data_path
-    by subtracting the minimum and dividing by the new maximum,
-    then shifting and scaling the data to the range [-1, 1]
-
-    Args:
-        data_path (Path | str): path to top of data directory
-
-    Returns:
-        tuple[int, Path, Path]: the resulting dataset id,
-            the path to the normalized data,
-            and the path to the statistics used for normalization
-    """
-    logger.info_(
-        "Beginning dataset normalization at %s using min-max-plus method...",
-        data_path,
-    )
-
-    assert is_valid_dataset(data_path=data_path, outside_logger=logger)
-
-    return 0, Path(data_path), None
-
-
-def zscore_normalize(data_path: Path | str) -> tuple[int, Path, Path]:
-    """
-    Normalizes data in train, val, and test directories at data_path
-    by subtracting the mean and dividing by the standard deviation
-    on a per-channel basis
-
-    Args:
-        data_path (Path | str): path to top of data directory
-
-    Returns:
-        tuple[int, Path, Path]: the resulting dataset id,
-            the path to the normalized data,
-            and the path to the statistics used for normalization
-    """
-    logger.info_(
-        "Beginning dataset normalization at %s using z-score method...",
-        data_path,
-    )
-
-    assert is_valid_dataset(data_path=data_path, outside_logger=logger)
-
-    return 0, Path(data_path), Path(data_path)
-
-
-def pixelz_normalize(data_path: Path | str) -> tuple[int, Path, Path]:
-    """
-    Normalizes data in train, val, and test directories at data_path
-    by subtracting the mean and dividing by the standard deviation
-    on a per-pixel basis
-
-    Args:
-        data_path (Path | str): path to top of data directory
-
-    Returns:
-        tuple[int, Path, Path]: the resulting dataset id,
-            the path to the normalized data,
-            and the path to the statistics used for normalization
-    """
-    logger.info_(
-        "Beginning dataset normalization at %s using pixelz method...",
-        data_path,
-    )
-
-    assert is_valid_dataset(data_path=data_path, outside_logger=logger)
-
-    return 0, Path(data_path), Path(data_path)
-
-
 def normalize_data(
-    data_path: Path | str, method: str
-) -> tuple[int, Path, Path | None]:
+    data_path: Path | str, method: str, out_path: Path | str | None = None
+) -> tuple[int, int, Path, Path | None]:
     """
     Normalizes data in train, val, and test directories at data_path
     according to statistics of the train data using provided method
@@ -622,15 +427,40 @@ def normalize_data(
         data_path (Path | str): path to top of data directory
         method (str): method to use for normalization. Supported methods
             are in the normalization_methods database table.
+        out_path (Path | str | None, optional): path where data
+            should be saved to.
+            If None will be set to data_path + '-n[job_id]'.
+            Statistics (if used) will be saved at (relative to out_path)
+            ../stats/[method]-[job_id].pt
 
     Returns:
-        tuple[int, Path, Path]: the resulting dataset id,
+        tuple[int, int, Path, Path]: the processing job ID,
+            the resulting dataset ID,
             the path to the normalized data,
             and the path to the statistics used for normalization
     """
-    assert is_valid_dataset(data_path=data_path, outside_logger=logger)
+    assert is_valid_dataset(
+        data_path=data_path, split_test=True, outside_logger=logger
+    )
+
+    # specify default out_path if not given
+    job_id = get_data_processing_job_id(new=False)
+    if out_path is None or out_path == "None":
+        out_path = Path(str(data_path).removesuffix("/") + "-n" + str(job_id))
+
+    # make sure out_path directory is in the "data" directory
+    assert "/data/" in str(out_path), (
+        "Results directory out_path must be in the 'data' directory. "
+        f"Got {out_path}."
+    )
+
+    # create the out_path directory if it doesn't exist
+    if not os.path.exists(out_path):
+        os.mkdir(out_path)
+        logger.debug_("Created output directory %s", out_path)
 
     # make sure the method is in the normalization_methods database table
+    methods = []
     postgres_connection_string = get_postgres_connection_string()
     # pylint has a false positive when using psycopg 3's new context managers
     # pylint: disable=not-context-manager
@@ -655,45 +485,80 @@ def normalize_data(
                 raise ValueError(message)
     # pylint: enable=not-context-manager
 
-    # normalize data using the specified method
-    if method == "minmax":
-        return minmax_normalize(data_path=data_path)
-    if method == "minmaxplus":
-        return minmaxplus_normalize(data_path=data_path)
-    if method == "zscore":
-        return zscore_normalize(data_path=data_path)
-    if method == "pixelz":
-        return pixelz_normalize(data_path=data_path)
-
-    # if method is not supported, raise an error
-    message = (
-        f"Provided normalization method '{method}' is not implemented. "
-        "Implement it in data_processing.py and add it to if statements above."
+    logger.info_(
+        "Beginning normalization of data at %s using %s and saving at %s...",
+        data_path,
+        method,
+        out_path,
     )
-    logger.error_("%s", message)
-    raise ValueError(message)
+
+    # define type for normalization function
+    normalization_function: Callable[
+        [Path | str, Path | str], tuple[Path, Path | None]
+    ]
+
+    # set normalization function based on method
+    if method == "minmax":
+        normalization_function = minmax_normalize
+    elif method == "minmaxextended":
+        normalization_function = minmax_extended_normalize
+    elif method == "localminmax":
+        normalization_function = local_minmax_normalize
+    elif method == "localminmaxextended":
+        normalization_function = local_minmax_extended_normalize
+    elif method == "zscore":
+        normalization_function = zscore_normalize
+    elif method == "pixelz":
+        normalization_function = pixelz_normalize
+    elif method == "localzscore":
+        normalization_function = local_zscore_normalize
+    else:
+        # if method is not supported, raise an error
+        message = (
+            f"Provided normalization method '{method}' is not implemented. "
+            f"Either check for spelling (supported methods are {methods}) "
+            "or implement it in data_processing.py "
+            "and add it to the set of if statements above."
+        )
+        logger.error_("%s", message)
+        raise ValueError(message)
+
+    # normalize the data
+    res_path, stats_path = normalization_function(
+        data_path=data_path, out_path=out_path
+    )
+
+    # register the newly normalized dataset to the database
+    dataset_id = register_dataset(
+        data_path=res_path, job_id=job_id, notes="Normalized data"
+    )
+
+    logger.info_("Done normalizing dataset!")
+
+    return job_id, dataset_id, res_path, stats_path
 
 
 def convert_to_jpeg(
     data_path: Path | str, quality: float, out_path: Path | str | None = None
-) -> tuple[int, Path]:
+) -> tuple[int, int, Path]:
     """
-    Converts all tensors in data_path to JPEG images
+    Converts all files in data_path to JPEG images
     with the given quality and saves them in out_path
 
     Args:
-        data_path (Path | str): path to the top of the data directory
+        data_path (Path | str): path to the top of the data directory.
         quality (float): quality of the JPEG images to save.
             Must be between 0 and 100. See pillow docs for more info.
         out_path (Path | str | None, optional): path where data
             should be saved to. Defaults to data_path + '-c[job_id]'.
 
     Returns:
-        tuple[int, Path]: the dataset ID and the path to the split data
+        tuple[int, int, Path]: the processing job ID,
+            the resulting dataset ID, and the path to the converted data
     """
     # specify default out_path if not given
-    job_id = get_data_processing_job_id()
-    out_path = Path(str(data_path).removesuffix("/") + "-s" + str(job_id))
+    job_id = get_data_processing_job_id(new=False)
+    out_path = Path(str(data_path).removesuffix("/") + "-c" + str(job_id))
 
     logger.info_(
         "Converting data at %s to JPEG at %s using compression quality %s",
@@ -702,8 +567,249 @@ def convert_to_jpeg(
         quality,
     )
 
-    assert is_valid_dataset(data_path=data_path, outside_logger=logger)
+    assert is_valid_dataset(
+        data_path=data_path, split_test=True, outside_logger=logger
+    )
 
-    # TODO: implement conversion to JPEG
+    # make sure destination doesn't already exist to avoid issues
+    if os.path.exists(out_path):
+        message = (
+            f"Destination subdirectory {out_path} "
+            "already exists, which is currently not handled"
+        )
+        logger.error_("%s", message)
+        raise NotImplementedError(message)
 
-    return job_id, Path(out_path)
+    os.mkdir(out_path)
+    logger.debug_("Created output directory %s", out_path)
+
+    for cur_dir, sub_dirs, files in os.walk(data_path):
+        # replicate the data_path subdirectory structure
+        for sub_dir in sub_dirs:
+            # get subdirectory subpath by removing data_path from subdir
+            subdir_subpath = cur_dir.removeprefix(str(data_path) + "/")
+            subdir_subpath = subdir_subpath.removeprefix(str(data_path))
+            # create new subdirectory path as outpath/subpath
+            new_subdir_subpath = os.path.join(out_path, subdir_subpath)
+            destination_subdir = os.path.join(new_subdir_subpath, sub_dir)
+            os.mkdir(destination_subdir)
+            logger.debug_("Created destination %s", destination_subdir)
+
+        # convert each file and place in out_path/sub_dir/fname.jpg
+        for filename in files:
+            filepath = os.path.join(cur_dir, filename)
+            if filepath.endswith(".pt"):
+                im = torch.load(
+                    filepath, map_location="cpu", weights_only=True
+                )
+            elif filepath.endswith(".npy"):
+                im = torch.from_numpy(np_load(filepath))
+            else:
+                message = (
+                    f"File {filepath} is not of a supported format. "
+                    "Currently only .pt and .npy formats are supported."
+                )
+                logger.error_("%s", message)
+                raise ValueError(message)
+            # convert to uint8 before saving as JPEG
+            im = im.to(dtype=torch.uint8)
+            # get image subpath by removing data_path from filepath
+            file_subpath = filepath.removeprefix(str(data_path) + "/")
+            file_subpath = file_subpath.removeprefix(str(data_path))
+            # create new filepath as outpath/subpath
+            new_filepath = os.path.join(out_path, file_subpath)
+            new_filepath = new_filepath.replace(".pt", ".jpg")
+            im = im.permute(1, 2, 0).numpy()
+            Image.fromarray(im).save(
+                new_filepath, optimize=True, keep_rgb=True, quality=quality
+            )
+            logger.debug_(
+                "Converted %s and saved as %s", filepath, new_filepath
+            )
+
+    logger.info_("Done converting data to JPEG!")
+
+    # register the newly created dataset to the database
+    dataset_id = register_dataset(
+        data_path=out_path, job_id=job_id, notes="Converted to JPEG"
+    )
+
+    return job_id, dataset_id, Path(out_path)
+
+
+def convert_to_numpy(
+    data_path: Path | str, out_path: Path | str | None = None
+) -> tuple[int, int, Path]:
+    """
+    Converts all files in data_path to NumPy arrays
+    and saves them in out_path
+
+    Args:
+        data_path (Path | str): path to the top of the data directory.
+            Data is assumed to be in .pt format.
+        out_path (Path | str | None, optional): path where data
+            should be saved to. Defaults to data_path + '-c[job_id]'.
+
+    Returns:
+        tuple[int, int, Path]: the processing job ID,
+            the resulting dataset ID, and the path to the converted data
+    """
+    # specify default out_path if not given
+    job_id = get_data_processing_job_id(new=False)
+    out_path = Path(str(data_path).removesuffix("/") + "-c" + str(job_id))
+
+    logger.info_(
+        "Converting data at %s to NumPy array at %s", data_path, out_path
+    )
+
+    assert is_valid_dataset(
+        data_path=data_path, split_test=True, outside_logger=logger
+    )
+
+    # make sure destination doesn't already exist to avoid issues
+    if os.path.exists(out_path):
+        message = (
+            f"Destination subdirectory {out_path} "
+            "already exists, which is currently not handled"
+        )
+        logger.error_("%s", message)
+        raise NotImplementedError(message)
+
+    os.mkdir(out_path)
+    logger.debug_("Created output directory %s", out_path)
+
+    for cur_dir, sub_dirs, files in os.walk(data_path):
+        # replicate the data_path subdirectory structure
+        for sub_dir in sub_dirs:
+            # get subdirectory subpath by removing data_path from subdir
+            subdir_subpath = cur_dir.removeprefix(str(data_path) + "/")
+            subdir_subpath = subdir_subpath.removeprefix(str(data_path))
+            # create new subdirectory path as outpath/subpath
+            new_subdir_subpath = os.path.join(out_path, subdir_subpath)
+            destination_subdir = os.path.join(new_subdir_subpath, sub_dir)
+            os.mkdir(destination_subdir)
+            logger.debug_("Created destination %s", destination_subdir)
+
+        # convert each file and place in out_path/sub_dir/fname.jpg
+        for filename in files:
+            filepath = os.path.join(cur_dir, filename)
+            if filepath.endswith(".pt"):
+                im = torch.load(
+                    filepath, map_location="cpu", weights_only=True
+                )
+            elif filepath.endswith(".npy"):
+                continue  # already in NumPy format
+            else:
+                message = (
+                    f"File {filepath} is not of a supported format. "
+                    "Currently only .pt and .npy formats are supported."
+                )
+                logger.error_("%s", message)
+                raise ValueError(message)
+            # get image subpath by removing data_path from filepath
+            file_subpath = filepath.removeprefix(str(data_path) + "/")
+            file_subpath = file_subpath.removeprefix(str(data_path))
+            # create new filepath as outpath/subpath
+            new_filepath = os.path.join(out_path, file_subpath)
+            new_filepath = new_filepath.replace(".pt", ".npy")
+            np_save(im.numpy(), new_filepath)
+            logger.debug_(
+                "Converted %s and saved as %s", filepath, new_filepath
+            )
+
+    logger.info_("Done converting data to NumPy arrays!")
+
+    # register the newly created dataset to the database
+    dataset_id = register_dataset(
+        data_path=out_path, job_id=job_id, notes="Converted to NumPy array"
+    )
+
+    return job_id, dataset_id, Path(out_path)
+
+
+def convert_to_pytorch(
+    data_path: Path | str, out_path: Path | str | None = None
+) -> tuple[int, int, Path]:
+    """
+    Converts all files in data_path to PyTorch tensors
+    and saves them in out_path
+
+    Args:
+        data_path (Path | str): path to the top of the data directory.
+            Data is assumed to be in .npy format.
+        out_path (Path | str | None, optional): path where data
+            should be saved to. Defaults to data_path + '-c[job_id]'.
+
+    Returns:
+        tuple[int, int, Path]: the processing job ID,
+            the resulting dataset ID, and the path to the converted data
+    """
+    # specify default out_path if not given
+    job_id = get_data_processing_job_id(new=False)
+    out_path = Path(str(data_path).removesuffix("/") + "-c" + str(job_id))
+
+    logger.info_(
+        "Converting data at %s to PyTorch tensor at %s", data_path, out_path
+    )
+
+    assert is_valid_dataset(
+        data_path=data_path, split_test=True, outside_logger=logger
+    )
+
+    # make sure destination doesn't already exist to avoid issues
+    if os.path.exists(out_path):
+        message = (
+            f"Destination subdirectory {out_path} "
+            "already exists, which is currently not handled"
+        )
+        logger.error_("%s", message)
+        raise NotImplementedError(message)
+
+    os.mkdir(out_path)
+    logger.debug_("Created output directory %s", out_path)
+
+    for cur_dir, sub_dirs, files in os.walk(data_path):
+        # replicate the data_path subdirectory structure
+        for sub_dir in sub_dirs:
+            # get subdirectory subpath by removing data_path from subdir
+            subdir_subpath = cur_dir.removeprefix(str(data_path) + "/")
+            subdir_subpath = subdir_subpath.removeprefix(str(data_path))
+            # create new subdirectory path as outpath/subpath
+            new_subdir_subpath = os.path.join(out_path, subdir_subpath)
+            destination_subdir = os.path.join(new_subdir_subpath, sub_dir)
+            os.mkdir(destination_subdir)
+            logger.debug_("Created destination %s", destination_subdir)
+
+        # convert each file and place in out_path/sub_dir/fname.jpg
+        for filename in files:
+            filepath = os.path.join(cur_dir, filename)
+            if filepath.endswith(".pt"):
+                continue  # already in PyTorch format
+            if filepath.endswith(".npy"):
+                im = torch.from_numpy(np_load(filepath))
+            else:
+                message = (
+                    f"File {filepath} is not of a supported format. "
+                    "Currently only .pt and .npy formats are supported."
+                )
+                logger.error_("%s", message)
+                raise ValueError(message)
+            # get image subpath by removing data_path from filepath
+            file_subpath = filepath.removeprefix(str(data_path) + "/")
+            file_subpath = file_subpath.removeprefix(str(data_path))
+            # create new filepath as outpath/subpath
+            new_filepath = os.path.join(out_path, file_subpath)
+            new_filepath = new_filepath.replace(".npy", ".pt")
+            torch.save(im, new_filepath)
+            logger.debug_(
+                "Converted %s and saved as %s", filepath, new_filepath
+            )
+
+    logger.info_("Done converting data to PyTorch tensors!")
+
+    # register the newly created dataset to the database
+    dataset_id = register_dataset(
+        data_path=out_path, job_id=job_id, notes="Converted to PyTorch tensor"
+    )
+
+    return job_id, dataset_id, Path(out_path)

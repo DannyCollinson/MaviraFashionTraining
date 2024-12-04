@@ -50,7 +50,7 @@ def get_dataset_id(data_path: Path | str) -> int:
     with connect(postgres_connection_string) as conn:
         with conn.cursor() as curs:
             curs.execute(
-                "SELECT id FROM datasets WHERE dir = %s;", (data_path)
+                "SELECT id FROM datasets WHERE dir = %s;", (str(data_path),)
             )
             res = curs.fetchone()
             if res is None:
@@ -168,10 +168,18 @@ def parse_directory(
             for file in files:
                 extensions.add(file.split(".")[-1])
 
-    # check that all images have the same extension
-    assert (
-        len(extensions) == 1
-    ), f"Found multiple extensions in dataset: {extensions}"
+    # if dataset has multiple extensions, check that they are png and jpg
+    # because this is the only case where multiple extensions are allowed
+    if not (
+        len(extensions) == 2 and "png" in extensions and "jpg" in extensions
+    ):
+        # check that all images have the same extension
+        assert (
+            len(extensions) == 1
+        ), f"Found multiple extensions in dataset: {extensions}"
+    else:
+        # if multiple extensions are png and jpg, only keep one
+        extensions = {"jpg"}
 
     return (
         num_classes,
@@ -230,7 +238,7 @@ def register_dataset(
                 curs.execute(
                     "SELECT ("
                     "is_cleaned, is_resized, is_split, is_normalized, "
-                    "is_converted, image_height, image_width, norm_method"
+                    "is_converted, resize_height, resize_width, norm_method"
                     ") FROM datasets WHERE id = %s;",
                     (previous_dataset_id,),
                 )
@@ -254,8 +262,8 @@ def register_dataset(
                     "SELECT ("
                     "cleaning, resizing, splitting, "
                     "normalization, conversion, "
-                    "image_height, image_width, norm_method"
-                    "FROM data_processing_jobs WHERE id = %s;",
+                    "resize_height, resize_width, norm_method"
+                    ") FROM data_processing_jobs WHERE id = %s;",
                     (job_id,),
                 )
                 # save job info as tuple
@@ -303,7 +311,9 @@ def register_dataset(
             job_image_height,
             job_image_width,
             job_norm_method,
-        ) = job_info  # type: ignore
+        ) = job_info[  # type: ignore
+            0
+        ]
         # MyPy doesn't recognize that job_info cannot be None here
     else:
         # if no job, initialize variables
@@ -317,43 +327,63 @@ def register_dataset(
         job_norm_method = None
 
     # adjust dataset info based on job info
+
     if not prev_is_cleaned and cleaning:
-        is_cleaned = True  # if not cleaned, now cleaned
+        # just cleaned dataset
+        is_cleaned = True
     elif prev_is_cleaned is not None:
-        is_cleaned = prev_is_cleaned  # if cleaned, stay cleaned
+        # if not cleaning, keep previous value
+        is_cleaned = prev_is_cleaned
     else:
+        # if no previous value, initialize to None
         is_cleaned = None
-    if not prev_is_resized and resizing:
-        is_resized = True  # if not resized, now resized
-        # set image dimensions to job dimensions if not already set
+
+    if prev_is_cleaned and not prev_is_resized and resizing:
+        # just resized dataset
+        is_resized = True
         image_height = job_image_height
         image_width = job_image_width
     elif prev_is_resized is not None:
-        is_resized = prev_is_resized  # if resized, stay resized
+        # if not resizing, keep previous values
+        is_resized = prev_is_resized
         image_height = prev_image_height
         image_width = prev_image_width
     else:
+        # if no previous values, initialize to None
         is_resized = None
         image_height = None
         image_width = None
-    if not prev_is_split and splitting:
-        is_split = True  # if not split, now split
+
+    if prev_is_resized and not prev_is_split and splitting:
+        # just split dataset
+        is_split = True
     elif prev_is_split is not None:
-        is_split = prev_is_split  # if split, stay split
-    if not prev_is_normalized and normalization:
-        is_normalized = True  # if not normalized, now normalized
+        # if not splitting, keep previous value
+        is_split = prev_is_split
+    # no else statement because
+    # is_split is already initialized in line 222 during parse_directory call
+
+    if prev_is_split and not prev_is_normalized and normalization:
+        # just normalized dataset
+        is_normalized = True
         norm_method = job_norm_method
     elif prev_is_normalized is not None:
-        is_normalized = prev_is_normalized  # if normalized, stay normalized
+        # if not normalizing, keep previous values
+        is_normalized = prev_is_normalized
         norm_method = prev_norm_method
     else:
+        # if no previous values, initialize to None
         is_normalized = None
         norm_method = None
-    if not prev_is_converted and conversion:
-        is_converted = True  # if not converted, now converted
+
+    if prev_is_normalized and not prev_is_converted and conversion:
+        # just converted dataset
+        is_converted = True
     elif prev_is_converted is not None:
-        is_converted = prev_is_converted  # if converted, stay converted
+        # if not converting, keep previous value
+        is_converted = prev_is_converted
     else:
+        # if no previous value, initialize to None
         is_converted = None
 
     # if we don't know if dataset is cleaned, check filenames for cleaning
@@ -372,6 +402,10 @@ def register_dataset(
                     break
             if break_flag:
                 break  # break out of outer loop if inner loop breaks
+
+        # if all files are cleaned, label dataset as cleaned
+        if is_cleaned is None:
+            is_cleaned = True
 
     # if we don't know if dataset is resized, open images to check dimensions
     if is_resized is None and not is_cleaned:
@@ -397,6 +431,10 @@ def register_dataset(
                     )
                     is_resized = False
                     break_flag = True  # set flag to break out of nested loop
+                    # set image dimensions to None if not consistent
+                    image_height, image_width = None, None
+                    break
+
             if break_flag:
                 break  # break out of outer loop if inner loop breaks
 
@@ -413,7 +451,7 @@ def register_dataset(
         # initialize norm_method flags
         z_flag = True
         minmax_flag = True
-        minmaxplus_flag = True
+        minmax_extended_flag = True
 
         # check training data for normalization
         for cur_dir, _, files in walk(join(data_path, "train")):
@@ -429,20 +467,24 @@ def register_dataset(
                     # if not, min-max normalization was not used
                     minmax_flag = False
                 # or if all values are not between -1 and 1
-                if minmaxplus_flag and im.min() < -1 and im.max() > 1:
+                if minmax_extended_flag and im.min() < -1 and im.max() > 1:
                     # if not, min-max-plus normalization was not used
-                    minmaxplus_flag = False
+                    minmax_extended_flag = False
             if not z_flag and not minmax_flag:
                 is_normalized = False
+                logger.debug_(
+                    "Filters for z-score and min-max normalization failed. "
+                    "If the dataset is normalized, please fix the filters."
+                )
                 break  # break out of loop if both flags are False
         if is_normalized:
             # if here, data must be normalized
             if z_flag:
-                norm_method = "zunknown"
+                norm_method = "z_unknown"
             elif minmax_flag:
-                norm_method = "minmax"
-            elif minmaxplus_flag:
-                norm_method = "minmaxplus"
+                norm_method = "minmax_unknown"
+            elif minmax_extended_flag:
+                norm_method = "minmaxextended_unknown"
 
     # if we don't know if dataset is converted, check for conversion
     if is_converted is None and (
@@ -538,7 +580,7 @@ def register_processing_job(
             Defaults to None.
     """
     # get job ID based on the previous job ID
-    job_id = get_data_processing_job_id()
+    job_id = get_data_processing_job_id(new=True)
 
     logger.info_("Registering data processing job %s in database...", job_id)
 
@@ -586,20 +628,23 @@ def register_processing_job(
                     split_dataset_id,
                     normalized_dataset_id,
                     converted_dataset_id,
+                    resize_height,
+                    resize_width,
                     interpolation,
+                    seed,
                     cleanup,
                     train_percent,
                     val_percent,
                     test_percent,
                     stats_path,
                     norm_method,
-                    conversion_format
+                    conversion_format,
                     jpeg_quality,
                     notes
                 ) VALUES (
                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s
+                    %s, %s, %s, %s, %s, %s
                 );
                 """,
                 (
@@ -616,7 +661,10 @@ def register_processing_job(
                     split_dataset_id,
                     normalized_dataset_id,
                     converted_dataset_id,
+                    result_dict["resize_height"],
+                    result_dict["resize_width"],
                     result_dict["interpolation"],
+                    result_dict["seed"],
                     result_dict["cleanup"],
                     int(result_dict["ratios"][0]),
                     int(result_dict["ratios"][1]),
@@ -630,4 +678,77 @@ def register_processing_job(
             )
 
     logger.info_("Data processing job registered successfully!")
+    return job_id
+
+
+def update_processing_job(
+    job_id: int,
+    result_dict: dict[str, Any],
+) -> int:
+    """
+    Updates a data processing job in the PostgreSQL database
+
+    Args:
+        job_id (int): ID of the data processing job to update
+        result_dict (dict[str, Any]): dictionary containing
+            information about the data processing job
+        notes (str | None, optional): Any notes to include.
+            Defaults to None.
+    """
+    logger.info_("Updating data processing job %s in database...", job_id)
+
+    # parse result_dict for dataset IDs
+    if result_dict["0"] is not None:
+        cleaned_dataset_id = result_dict["0"][0]
+    else:
+        cleaned_dataset_id = None
+    if result_dict["1"] is not None:
+        resized_dataset_id = result_dict["1"][0]
+    else:
+        resized_dataset_id = None
+    if result_dict["2"] is not None:
+        split_dataset_id = result_dict["2"][0]
+    else:
+        split_dataset_id = None
+    if result_dict["3"] is not None:
+        normalized_dataset_id = result_dict["3"][0]
+    else:
+        normalized_dataset_id = None
+    if result_dict["4"] is not None:
+        converted_dataset_id = result_dict["4"][0]
+    else:
+        converted_dataset_id = None
+
+    # insert database record into processing_jobs table
+    postgres_connection_string = get_postgres_connection_string()
+    # pylint has a false positive when using psycopg 3's new context managers
+    # pylint: disable=not-context-manager
+    with connect(postgres_connection_string, autocommit=True) as conn:
+        with conn.cursor() as curs:
+            curs.execute(
+                """
+                UPDATE data_processing_jobs
+                SET
+                    end_time = %s,
+                    cleaned_dataset_id = %s,
+                    resized_dataset_id = %s,
+                    split_dataset_id = %s,
+                    normalized_dataset_id = %s,
+                    converted_dataset_id = %s,
+                    stats_path = %s
+                WHERE id = %s;
+                """,
+                (
+                    result_dict["end_time"],
+                    cleaned_dataset_id,
+                    resized_dataset_id,
+                    split_dataset_id,
+                    normalized_dataset_id,
+                    converted_dataset_id,
+                    str(result_dict["stats_path"]),
+                    job_id,
+                ),
+            )
+
+    logger.info_("Data processing job updated successfully!")
     return job_id
