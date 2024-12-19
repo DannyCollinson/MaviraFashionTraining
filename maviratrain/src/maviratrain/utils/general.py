@@ -2,7 +2,9 @@
 
 import datetime
 import os
-from collections.abc import Callable
+
+# TODO: remove the pylint disable once the issue is resolved
+from collections.abc import Callable  # pylint: disable=import-error
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -383,7 +385,8 @@ def get_postgres_connection_string(
     database: str = "mavirafashiontrainingdb",
     host: str = "localhost",
     user: str = "mavira",
-    password: str = ".env",
+    password: str | None = ".env",
+    passfile: str = "~/programs/postgresql/.pgpass",
     port: str = "5432",
 ) -> str:
     """
@@ -399,10 +402,13 @@ def get_postgres_connection_string(
             Defaults to "localhost".
         user (str, optional): Name of user to connect as.
             Defaults to "mavira".
-        password (str, optional): Password for user to be connected.
+        password (str | None, optional): Password for user to be connected.
             Defaults to ".env", which loads a variable stored in
             the .env file of the project
             as "POSTGRESQL_USERMAVIRA_PASSWORD".
+        passfile (str, optional): Path to the .pgpass file.
+            Defaults to "~/programs/postgresql/.pgpass".
+            Ignored if password is not None.
         port (str, optional): Port to connect to PostgreSQL on.
             Defaults to PostgreSQL's default of "5432".
 
@@ -410,10 +416,19 @@ def get_postgres_connection_string(
         tuple[str]: a formatted connection string to connect with
             a PostgreSQL database using psycopg
     """
-    # load default password for user "mavira" from .env file if needed
-    if password == ".env":
+    # set up password or passfile
+    if password is None:
+        # if password is None, use the .pgpass file
+        password_or_file = f"passfile={passfile}"
+    elif password == ".env":
+        # load default password for user "mavira" from .env file
         load_dotenv()
-        password = os.environ["POSTGRESQL_USERMAVIRA_PASSWORD"]
+        password_or_file = (
+            f'password={os.environ["POSTGRESQL_USERMAVIRA_PASSWORD"]}'
+        )
+    else:
+        # otherwise, use the provided password
+        password_or_file = f"password={password}"
 
     # format the connection string following PostgreSQL standards
     connection_string = (
@@ -421,7 +436,7 @@ def get_postgres_connection_string(
         f"port={port} "
         f"dbname={database} "
         f"user={user} "
-        f"password={password}"
+        f"{password_or_file}"
     )
 
     return connection_string

@@ -6,7 +6,9 @@ and generating train/val/test splits.
 import os
 import random
 import re
-from collections.abc import Callable
+
+# TODO: remove the pylint disable once the issue is resolved
+from collections.abc import Callable  # pylint: disable=import-error
 from pathlib import Path
 from subprocess import run
 

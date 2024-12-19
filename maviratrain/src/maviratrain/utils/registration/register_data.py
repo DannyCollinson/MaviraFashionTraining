@@ -338,7 +338,7 @@ def register_dataset(
         # if no previous value, initialize to None
         is_cleaned = None
 
-    if prev_is_cleaned and not prev_is_resized and resizing:
+    if is_cleaned and not prev_is_resized and resizing:
         # just resized dataset
         is_resized = True
         image_height = job_image_height
@@ -354,7 +354,7 @@ def register_dataset(
         image_height = None
         image_width = None
 
-    if prev_is_resized and not prev_is_split and splitting:
+    if is_resized and not prev_is_split and splitting:
         # just split dataset
         is_split = True
     elif prev_is_split is not None:
@@ -363,7 +363,7 @@ def register_dataset(
     # no else statement because
     # is_split is already initialized in line 222 during parse_directory call
 
-    if prev_is_split and not prev_is_normalized and normalization:
+    if is_split and not prev_is_normalized and normalization:
         # just normalized dataset
         is_normalized = True
         norm_method = job_norm_method
@@ -376,7 +376,7 @@ def register_dataset(
         is_normalized = None
         norm_method = None
 
-    if prev_is_normalized and not prev_is_converted and conversion:
+    if is_normalized and not prev_is_converted and conversion:
         # just converted dataset
         is_converted = True
     elif prev_is_converted is not None:

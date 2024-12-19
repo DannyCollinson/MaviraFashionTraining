@@ -2,6 +2,7 @@
 
 import argparse
 from pathlib import Path
+from subprocess import run as subprocess_run
 from typing import Any
 
 from maviratrain.data import data_processing
@@ -396,6 +397,12 @@ def run(arg: argparse.Namespace) -> dict[str, Any]:
         result_dict=preregistration_dict, notes=arg.notes
     )
 
+    # log cleanup option in result dictionary
+    if arg.cleanup:
+        result["cleanup"] = True
+    else:
+        result["cleanup"] = False
+
     # run the specified stages
     if 0 in stages:  # name cleaning
         result["starting_dataset_path"] = arg.raw
@@ -459,6 +466,10 @@ def run(arg: argparse.Namespace) -> dict[str, Any]:
         result["seed"] = None
         result["2"] = None
 
+    # clean up intermediate dataset if resizing and splitting were run
+    if arg.cleanup and resized_path and split_path:
+        clean_up_intermediate_dataset(data_path=resized_path)
+
     if 3 in stages:  # normalization
         # determine which input path to use for normalization
         if split_path:
@@ -479,6 +490,10 @@ def run(arg: argparse.Namespace) -> dict[str, Any]:
         result["norm_method"] = None
         result["3"] = None
         result["stats_path"] = None
+
+    # clean up intermediate dataset if splitting and normalization were run
+    if arg.cleanup and split_path and normed_path:
+        clean_up_intermediate_dataset(data_path=split_path)
 
     if 4 in stages:  # conversion to new file format
         # skip conversion if the working format is the same as the final format
@@ -530,19 +545,9 @@ def run(arg: argparse.Namespace) -> dict[str, Any]:
         result["jpeg_quality"] = None
         result["4"] = None
 
-    # clean up intermediate dataset if specified and splitting was run
-    if arg.cleanup:
-        result["cleanup"] = True
-
-        # if resizing and splitting were run, clean up resized dataset
-        if resized_path and split_path:
-            clean_up_intermediate_dataset(data_path=resized_path)
-
-        # if splitting and conversion were run, clean up split dataset
-        if split_path and converted_path:
-            clean_up_intermediate_dataset(data_path=split_path)
-    else:
-        result["cleanup"] = False
+    # clean up intermediate dataset if normalization and conversion were run
+    if arg.cleanup and normed_path and converted_path:
+        clean_up_intermediate_dataset(data_path=normed_path)
 
     # get end time to store in database
     result["end_time"] = get_time()
@@ -554,6 +559,10 @@ def run(arg: argparse.Namespace) -> dict[str, Any]:
 
     # check if the job ID returned from the database matches the one generated
     assert returned_job_id == job_id, "Database returned unexpected job ID"
+
+    # zip up logs to save space
+    log_archive_path = f"../logs/archive/data_processing/j{job_id}"
+    logger.info_("Logs zipped and moved to %s", log_archive_path + ".zip")
 
     logger.info_("Finished running job %s!", job_id)
     return result
@@ -569,3 +578,20 @@ if __name__ == "__main__":
     result_dict = run(arg=args)
 
     logger.debug_("Finished runnning run_data_processing.py!")
+
+    # zip up logs to save space
+    logs_path = Path("../logs/data_processing")
+    log_archive = f"../logs/archive/data_processing/j{result_dict['job_id']}"
+    logger.close_logger()  # close logger to avoid file conflicts
+
+    # move logs to job-specific directory
+    for file in logs_path.glob("*"):
+        subprocess_run(["mv", file, log_archive], check=True)
+
+    # zip logs
+    subprocess_run(
+        ["zip", "-9", log_archive + ".zip", log_archive], check=True
+    )
+
+    # remove unzipped logs
+    subprocess_run(["rm", "-r", log_archive], check=True)

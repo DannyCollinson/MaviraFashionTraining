@@ -23,6 +23,8 @@ def np_save(array: ndarray, path: Path | str) -> None:
     numpy_save(path, array)
 
 
+DEFAULT_SEED = 42
+
 # define loading functions for different image formats
 LOAD_FUNCS = {
     "torchvision.io.decode_image": decode_image,
@@ -50,4 +52,22 @@ EXTENSION_TO_SAVE_FUNC = {
     "np": np_save,
     "pt": torch_save,
     "pth": torch_save,
+}
+
+# define default train dataset parameters
+DEFAULT_TRAIN_DATALOADER_PARAMS = {
+    "batch_size": 32,
+    "num_workers": 4,
+    "shuffle": True,
+    "drop_last": True,
+    "pin_memory": True,
+}
+
+# define default val/test dataset parameters
+DEFAULT_VAL_TEST_DATALOADER_PARAMS = {
+    "batch_size": 32,
+    "num_workers": 4,
+    "shuffle": False,
+    "drop_last": False,
+    "pin_memory": True,
 }

@@ -21,7 +21,7 @@ from ..utils.general import (
 logger = get_logger(
     "mt.data.normalization",
     # should be running from a notebook, hence the ../
-    log_filename="../logs/data_processing/normalization.log",
+    log_filename="../logs/data_processing/data_processing.log",
     rotation_params=(1000000, 1000),  # 1 MB, 1000 backups
 )
 
@@ -46,11 +46,6 @@ def minmax_normalize(
         tuple[Path, None]: the path to the normalized data
             and None as a placeholder for the statistics path
     """
-    logger.info_(
-        "Beginning dataset normalization at %s using min-max method...",
-        data_path,
-    )
-
     assert is_valid_dataset(
         data_path=data_path, split_test=True, outside_logger=logger
     )
@@ -132,12 +127,6 @@ def minmax_extended_normalize(
             and None as a placeholder for
             the path to the statistics used for normalization
     """
-    logger.info_(
-        "Beginning dataset normalization at %s "
-        "using min-max-extended method...",
-        data_path,
-    )
-
     assert is_valid_dataset(
         data_path=data_path, split_test=True, outside_logger=logger
     )
@@ -218,11 +207,6 @@ def zscore_normalize(
         tuple[Path, Path]: the path to the normalized data,
             and the path to the statistics used for normalization
     """
-    logger.info_(
-        "Beginning dataset normalization at %s using z-score method...",
-        data_path,
-    )
-
     assert is_valid_dataset(
         data_path=data_path, split_test=True, outside_logger=logger
     )
@@ -352,11 +336,6 @@ def pixelz_normalize(
         tuple[Path, Path]: the path to the normalized data,
             and the path to the statistics used for normalization
     """
-    logger.info_(
-        "Beginning dataset normalization at %s using pixelz method...",
-        data_path,
-    )
-
     assert is_valid_dataset(
         data_path=data_path, split_test=True, outside_logger=logger
     )
@@ -566,11 +545,6 @@ def local_minmax_normalize(
             and None as a placeholder for
             the path to the statistics used for normalization
     """
-    logger.info_(
-        "Beginning dataset normalization at %s using local min-max method...",
-        data_path,
-    )
-
     assert is_valid_dataset(
         data_path=data_path, split_test=True, outside_logger=logger
     )
@@ -650,12 +624,6 @@ def local_minmax_extended_normalize(
             and None as a placeholder for
             the path to the statistics used for normalization
     """
-    logger.info_(
-        "Beginning dataset normalization at %s "
-        "using local min-max-extended method...",
-        data_path,
-    )
-
     assert is_valid_dataset(
         data_path=data_path, split_test=True, outside_logger=logger
     )

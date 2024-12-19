@@ -8,8 +8,8 @@ include = ["maviratrain"]
 
 [project]
 name = "maviratrain"
-version = "0.0.1"
-requires-python = ">= 3.11.6"
+version = "0.1.1"
+requires-python = ">= 3.11"
 authors = [
   {name = "Danny Collinson", email = "dannycollinson12@gmail.com"}
 ]

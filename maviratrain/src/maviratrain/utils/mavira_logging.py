@@ -347,3 +347,11 @@ class MaviraTrainLogger(logging.Logger):
             self.both,
             console_level,
         )
+
+    def close_logger(self) -> None:
+        """
+        Closes all handlers and removes them from the logger
+        """
+        for handler in self.logger.handlers:
+            handler.close()
+            self.logger.removeHandler(handler)
