@@ -12,7 +12,15 @@ from torch import nn, no_grad, optim
 from torch.utils.data import DataLoader
 from torcheval.metrics import MulticlassAccuracy
 
-from maviratrain.utils.general import get_device, get_time
+from maviratrain.utils.general import get_device, get_logger, get_time
+
+# set up logger
+logger = get_logger(
+    "mt.train.train_classifier",
+    # should be running from a notebook, hence the ../
+    log_filename="../logs/train_runs/train_classifier.log",
+    rotation_params=(1000000, 1000),  # 1 MB, 1000 backups
+)
 
 
 class Trainer:
@@ -265,8 +273,8 @@ class Trainer:
                     self.val_stats[0].append(val_loss)  # record val loss
                     self.val_stats[1].append(val_acc1)  # record val accuracy
                     self.val_stats[2].append(val_acc5)  # record val acc@5
-                    print(
-                        f"  Val Epoch: {cur_epoch + 1}        "  # 8 spaces
+                    logger.info_(
+                        f"Val Epoch: {cur_epoch + 1}        "  # 8 spaces
                         f"Loss: {val_loss:.4f}        "  # 8 spaces
                         f"Accuracy: {val_acc1:.2f}        "  # 8 spaces
                         f"Top-5 Accuracy: {val_acc5:.2f}"
@@ -284,12 +292,12 @@ class Trainer:
                     # elif val_acc > best_val_acc:
                     if val_acc1 > best_val_acc:
                         best_val_acc = val_acc1
-                    #     model_path = (
-                    #         "/home/danny/mavira/FashionTraining/checkpoints/"
-                    #         f"vit_E{cur_epoch}_S{n_steps - steps_left}_"
-                    #         f"A{best_val_acc}_T{get_time()}.pt"
-                    #     )
-                    #     torch.save(model.state_dict(), model_path)
+                        model_path = (
+                            "/home/danny/mavira/FashionTraining/checkpoints/"
+                            f"temp{cur_epoch + 1}_S{n_steps - steps_left}_"
+                            f"A{best_val_acc}_T{get_time()}.pt"
+                        )
+                        torch.save(model.state_dict(), model_path)
 
                 prev_time = time.time()  # track the time per epoch
 
@@ -311,12 +319,12 @@ class Trainer:
                     scheduler.step()
 
                 cur_time = time.time()
-                print(
+                logger.info_(
                     f"Train Epoch: {cur_epoch + 1}        "  # 8 spaces
                     f"Loss: {train_loss:.4f}        "  # 8 spaces
                     f"Accuracy: {train_acc1:.2f}        "  # 8 spaces
                     f"Top-5 Accuracy: {train_acc5:.2f}        "  # 8 spaces
-                    f"Time: {cur_time - prev_time:.2f}        "  # 8 spaces
+                    f"Time: {cur_time - prev_time:.2f}"
                 )
                 prev_time = cur_time  # update time
 
@@ -326,12 +334,13 @@ class Trainer:
         try:  # except KeyboardInterrupt for stopping everything
             # run one more validation
             if self.val_loader is not None:  # only run if we have val data
-                print("\nRunning final evaluation:")
+                message = "\nRunning final evaluation:"
+                logger.info_(message)
                 val_loss, val_acc1, val_acc5 = self.validation(model=model)
                 self.val_stats[0].append(val_loss)  # record val loss
                 self.val_stats[1].append(val_acc1)  # record val accuracy
                 self.val_stats[2].append(val_acc5)  # record val acc@5
-                print(
+                logger.info_(
                     f"Loss: {val_loss:.4f}        "  # 8 spaces
                     f"Accuracy: {val_acc1:.2f}        "  # 8 spaces
                     f"Top-5 Accuracy: {val_acc5:.2f}        "  # 8 spaces
@@ -364,6 +373,14 @@ class Trainer:
                 #         f"{get_time()[:-5]}.pt"
                 #     )
                 #     torch.save(model.state_dict(), model_path)
+                if val_acc1 > best_val_acc:
+                    best_val_acc = val_acc1
+                    model_path = (
+                        "/home/danny/mavira/FashionTraining/checkpoints/"
+                        f"temp{cur_epoch + 1}_A{best_val_acc:.2f}-"
+                        f"{get_time()[:-5]}.pt"
+                    )
+                    torch.save(model.state_dict(), model_path)
 
         except KeyboardInterrupt:
             pass
@@ -371,7 +388,7 @@ class Trainer:
         # TODO
         model_path = (
             "/home/danny/mavira/FashionTraining/checkpoints/classifier/"
-            f"enet{cur_epoch}_S{n_steps - steps_left}_"
+            f"enet{cur_epoch + 1}_S{n_steps - steps_left}_"
             f"A{best_val_acc}_T{get_time()}.pt"
         )
         torch.save(model.state_dict(), model_path)

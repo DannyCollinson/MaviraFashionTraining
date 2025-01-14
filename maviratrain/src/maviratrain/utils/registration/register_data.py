@@ -631,6 +631,7 @@ def register_processing_job(
                     resize_height,
                     resize_width,
                     interpolation,
+                    deduplication,
                     seed,
                     cleanup,
                     train_percent,
@@ -644,7 +645,7 @@ def register_processing_job(
                 ) VALUES (
                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s, %s
                 );
                 """,
                 (
@@ -664,6 +665,7 @@ def register_processing_job(
                     result_dict["resize_height"],
                     result_dict["resize_width"],
                     result_dict["interpolation"],
+                    result_dict["deduplication"],
                     result_dict["seed"],
                     result_dict["cleanup"],
                     int(result_dict["ratios"][0]),

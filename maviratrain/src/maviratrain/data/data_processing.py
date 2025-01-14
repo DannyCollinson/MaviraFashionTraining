@@ -7,13 +7,13 @@ import os
 import random
 import re
 
-# TODO: remove the pylint disable once the issue is resolved
+# # TODO: remove the pylint disable once the issue is resolved
 from collections.abc import Callable  # pylint: disable=import-error
 from pathlib import Path
 from subprocess import run
 
 import torch
-from numpy import load as np_load
+from numpy import asarray, load as np_load
 from PIL import Image
 from psycopg import connect
 from torchvision.io import ImageReadMode, decode_image
@@ -75,6 +75,7 @@ def clean_subdirectories(data_path: Path | str) -> Path:
                         "in two directories named "
                         f"{sub_dir.removesuffix('_files')}. "
                         f"Please change the name of {sub_dir} "
+                        "or merge the directories "
                         "manually and rerun the script."
                     )
                     logger.error_("%s", message)
@@ -162,6 +163,8 @@ def clean_data_naming(
 
     Args:
         data_path (Path | str): path to top of data directory to clean
+        job_id (int | None, optional): the job ID to use for the
+            data processing job. If None, a new job ID will be generated.
 
     Returns:
         Path: the original data_path
@@ -187,10 +190,12 @@ def resize_images(
     size: tuple[int, int] = (224, 224),
     interpolation: str = "bilinear",
     save_format: str = "npy",
+    deduplicate: bool = True,
     out_path: Path | str | None = None,
 ) -> tuple[int, Path]:
     """
-    Resizes images in data_path to size and saves them in out_path
+    Resizes images in data_path to size and saves them in out_path.
+    Optionally deduplicates images by removing identical images.
 
     Args:
         data_path (Path | str): path to top of data directory to resize
@@ -200,6 +205,8 @@ def resize_images(
             use for resizing images. Defaults to "bilinear".
         format (str, optional): format to save resized images in.
             Supported formats are 'npy' and 'pt'. Defaults to 'npy'.
+        deduplicate (bool, optional): whether to remove duplicate images.
+            Defaults to True.
         out_path (Path | str | None, optional): path to save resized
             images out to. Defaults to None.
 
@@ -263,6 +270,10 @@ def resize_images(
     # get save function based on format
     save_func = get_save_function(save_format)
 
+    # set to store image hashes for deduplication
+    if deduplicate:
+        image_hashes = set()
+
     for cur_dir, sub_dirs, files in os.walk(data_path):
         # replicate the data_path subdirectory structure
         for sub_dir in sub_dirs:
@@ -274,19 +285,41 @@ def resize_images(
         for filename in files:
             filepath = os.path.join(cur_dir, filename)
             im = decode_image(filepath, mode=ImageReadMode.RGB)
-            # conver to float before resizing for accuracy
+
+            # hash for deduplication before resizing
+            if deduplicate:
+                im_hash = hash(asarray(im).tobytes())
+
+            # convert to float before resizing for accuracy
             im = im.to(dtype=torch.float32)
             im = resize(im)
+
             # get image subpath by removing data_path from filepath
             file_subpath = filepath.removeprefix(str(data_path) + "/")
             file_subpath = file_subpath.removeprefix(str(data_path))
             # create new filepath as outpath/subpath
             new_filepath = os.path.join(out_path, file_subpath)
             new_filepath = new_filepath.replace(".jpg", f".{save_format}")
-            # save using the specified format
-            save_func(im, new_filepath)
 
-            logger.debug_("Resized %s and saved as %s", filepath, new_filepath)
+            # deduplicate images
+            if deduplicate:
+                if im_hash in image_hashes:  # type: ignore
+                    # skip saving to new dataset if a duplicate
+                    logger.debug_(
+                        "Duplicate %s found, not adding to resized dataset",
+                        filepath,
+                    )
+                    continue
+
+                # add to hash set
+                image_hashes.add(im_hash)  # type: ignore
+
+                # save using the specified format
+                save_func(im, new_filepath)
+
+                logger.debug_(
+                    "Resized %s and saved as %s", filepath, new_filepath
+                )
 
     # register the newly created dataset to the database
     dataset_id = register_dataset(

@@ -137,6 +137,15 @@ parser.add_argument(
     default="bilinear",
 )
 parser.add_argument(
+    "--deduplicate",
+    type=int,
+    help=(
+        "Integer; 0 or 1. Specifies if duplicate images should be "
+        "removed during resizing. Defaults to 1 (remove duplicates)."
+    ),
+    default=1,
+)
+parser.add_argument(
     "--ratios",
     type=str,
     help=(
@@ -382,6 +391,7 @@ def run(arg: argparse.Namespace) -> dict[str, Any]:
     preregistration_dict["resize_height"] = arg.height
     preregistration_dict["resize_width"] = arg.width
     preregistration_dict["interpolation"] = arg.interp
+    preregistration_dict["deduplication"] = bool(arg.deduplicate)
     preregistration_dict["cleanup"] = bool(arg.cleanup)
     preregistration_dict["ratios"] = [
         int(num) for num in arg.ratios.split("/")
@@ -429,6 +439,7 @@ def run(arg: argparse.Namespace) -> dict[str, Any]:
             size=(arg.height, arg.width),
             interpolation=arg.interp,
             save_format=arg.working_format,
+            deduplicate=arg.deduplicate,
             out_path=arg.resized,
         )
         result["resize_height"] = arg.height

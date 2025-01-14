@@ -41,6 +41,8 @@ CREATE TABLE data_processing_jobs (
     resize_width SMALLINT DEFAULT NULL,
     -- the interpolation method used for resizing
     interpolation CHAR(13) DEFAULT NULL,
+    -- boolean for whether or not deduplication is performed
+    deduplication BOOLEAN NOT NULL,
     -- random seed used for splitting the dataset
     seed INT DEFAULT NULL,
     -- whether or not any intermediate datasets are cleaned up
