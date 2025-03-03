@@ -17,8 +17,7 @@ from maviratrain.utils.registration.register_data import (
 # set up logger
 logger = get_logger(
     "scripts.run_data_processing",
-    # should be running from a notebook, hence the ../
-    log_filename="../logs/data_processing/data_processing.log",
+    log_filename=("../logs/data_processing/data_processing.log"),
     rotation_params=(1000000, 1000),  # 1 MB, 1000 backups
 )
 

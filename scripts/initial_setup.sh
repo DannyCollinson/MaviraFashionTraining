@@ -16,11 +16,15 @@ mkdir -p ./checkpoints
 mkdir -p ./checkpoints/classifier
 mkdir -p ./checkpoints/mae
 mkdir -p ./logs
+mkdir -p ./logs/data_processing
+mkdir -p ./logs/train_runs
+mkdir -p ./logs/train_runs/classifier
+mkdir -p ./logs/train_runs/mae
 mkdir -p ./logs/archive
 mkdir -p ./logs/archive/data_processing
 mkdir -p ./logs/archive/train_runs
-mkdir -p ./logs/data_processing
-mkdir -p ./logs/train_runs
+mkdir -p ./logs/archive/train_runs/classifier
+mkdir -p ./logs/archive/train_runs/mae
 
 # run tests
 echo "Running tests..."

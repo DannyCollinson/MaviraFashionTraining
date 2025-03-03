@@ -23,7 +23,7 @@ from ..general import (
 # set up logger
 logger = get_logger(
     "mt.utils.registration.register_data",
-    log_filename="../logs/data_processing/data_processing.log",
+    log_filename=("../logs/data_processing/data_processing.log"),
     rotation_params=(1000000, 1000),  # 1 MB, 1000 backups
 )
 
@@ -45,8 +45,6 @@ def get_dataset_id(data_path: Path | str) -> int:
 
     # connect to database to get dataset ID
     postgres_connection_string = get_postgres_connection_string()
-    # pylint has a false positive when using psycopg 3's context managers
-    # pylint: disable=not-context-manager
     with connect(postgres_connection_string) as conn:
         with conn.cursor() as curs:
             curs.execute(
@@ -58,7 +56,6 @@ def get_dataset_id(data_path: Path | str) -> int:
                 logger.error_("%s", message)
                 raise RuntimeError(message)
             dataset_id = res[0]
-    # pylint: enable=not-context-manager
 
     logger.info_("Dataset ID found successfully!")
     return dataset_id
@@ -230,8 +227,6 @@ def register_dataset(
     if previous_dataset_id is not None:
         # connect to database to get info for previous dataset and current job
         postgres_connection_string = get_postgres_connection_string()
-        # pylint has a false positive when using psycopg 3's context managers
-        # pylint: disable=not-context-manager
         with connect(postgres_connection_string) as conn:
             with conn.cursor() as curs:
                 # get previous dataset info
@@ -248,13 +243,10 @@ def register_dataset(
                     message = "Could not find previous dataset in database"
                     logger.error_("%s", message)
                     raise RuntimeError(message)
-        # pylint: enable=not-context-manager
 
     # get job info if available
     if job_id is not None:
         postgres_connection_string = get_postgres_connection_string()
-        # pylint has a false positive when using psycopg 3's context managers
-        # pylint: disable=not-context-manager
         with connect(postgres_connection_string) as conn:
             with conn.cursor() as curs:
                 # get current job info
@@ -272,7 +264,6 @@ def register_dataset(
                     message = "Could not find job in database"
                     logger.error_("%s", message)
                     raise RuntimeError(message)
-        # pylint: enable=not-context-manager
 
     # parse previous dataset info
     if previous_dataset_id is not None:
@@ -501,8 +492,6 @@ def register_dataset(
 
     # insert database record into datasets table
     postgres_connection_string = get_postgres_connection_string()
-    # pylint has a false positive when using psycopg 3's new context managers
-    # pylint: disable=not-context-manager
     with connect(postgres_connection_string, autocommit=True) as conn:
         with conn.cursor() as curs:
             curs.execute(
@@ -560,7 +549,6 @@ def register_dataset(
                 logger.error_("%s", message)
                 raise RuntimeError(message)
             dataset_id = result[0]  # type: ignore
-    # pylint: enable=not-context-manager
 
     logger.info_("Dataset registered successfully!")
     return dataset_id
@@ -608,8 +596,6 @@ def register_processing_job(
 
     # insert database record into processing_jobs table
     postgres_connection_string = get_postgres_connection_string()
-    # pylint has a false positive when using psycopg 3's new context managers
-    # pylint: disable=not-context-manager
     with connect(postgres_connection_string, autocommit=True) as conn:
         with conn.cursor() as curs:
             curs.execute(
@@ -723,8 +709,6 @@ def update_processing_job(
 
     # insert database record into processing_jobs table
     postgres_connection_string = get_postgres_connection_string()
-    # pylint has a false positive when using psycopg 3's new context managers
-    # pylint: disable=not-context-manager
     with connect(postgres_connection_string, autocommit=True) as conn:
         with conn.cursor() as curs:
             curs.execute(

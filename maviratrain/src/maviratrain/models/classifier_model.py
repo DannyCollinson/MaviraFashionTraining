@@ -1,13 +1,17 @@
 """ Module defining the models used for Classification. """
 
+from pathlib import Path
 from typing import Any
 
-from torch import Tensor, manual_seed as torch_set_seed
-from torch.nn import BatchNorm1d, Linear, Module, ReLU, Sequential
+from torch import Tensor, load
+from torch import manual_seed as torch_set_seed
+from torch.nn import Conv2d, Linear, Module, Sequential
 from torch.nn.init import normal_, uniform_, zeros_
 from torchvision.models import (
+    EfficientNet_B0_Weights,
     EfficientNet_B3_Weights,
     VisionTransformer,
+    efficientnet_b0,
     efficientnet_b3,
 )
 
@@ -35,6 +39,9 @@ def create_vit(vit_kwargs: dict[str, Any] | None = None) -> VisionTransformer:
     hidden_dim = 1024
     mlp_dim = 4096
     num_classes = 4
+    dropout = 0.1
+    attention_dropout = 0.1
+    representation_size = None
 
     # update default values with kwargs
     if vit_kwargs is not None:
@@ -50,9 +57,16 @@ def create_vit(vit_kwargs: dict[str, Any] | None = None) -> VisionTransformer:
             hidden_dim = vit_kwargs["hidden_dim"]
         if "mlp_dim" in vit_kwargs:
             mlp_dim = vit_kwargs["mlp_dim"]
+        if "dropout" in vit_kwargs:
+            dropout = vit_kwargs["dropout"]
+        if "attention_dropout" in vit_kwargs:
+            attention_dropout = vit_kwargs["attention_dropout"]
+        if "representation_size" in vit_kwargs:
+            representation_size = vit_kwargs["representation_size"]
         if "num_classes" in vit_kwargs:
             num_classes = vit_kwargs["num_classes"]
 
+    # create the model using PyTorch's VisionTransformer class
     vit = VisionTransformer(
         image_size=image_size,
         patch_size=patch_size,
@@ -60,114 +74,219 @@ def create_vit(vit_kwargs: dict[str, Any] | None = None) -> VisionTransformer:
         num_heads=num_heads,
         hidden_dim=hidden_dim,
         mlp_dim=mlp_dim,
+        dropout=dropout,
+        attention_dropout=attention_dropout,
+        representation_size=representation_size,
         num_classes=num_classes,
     )
+
+    # initiialize the linear layer parameters
+    init_range = 1.0 / vit.num_classes**0.5
+    for submodule in vit.modules():
+        if isinstance(submodule, Linear):
+            normal_(submodule.weight, -init_range, init_range)
+            zeros_(submodule.bias)
+    uniform_(vit.heads.head.weight, -init_range, init_range)  # type: ignore
 
     return vit.to(device=get_device())
 
 
 def create_efficientnet_b3(
     num_classes: int,
-    weights: EfficientNet_B3_Weights | None = None,
+    weights: EfficientNet_B3_Weights | dict | str | Path | None = None,
     seed: int = DEFAULT_SEED,
 ) -> Module:
     """
-    Create an EfficientNet-B3 model with the given weights.
+    Create an EfficientNet-B3 model with the specified weights.
+
+    Args:
+        num_classes (int): number of classes in the dataset
+        weights (EfficientNet_B3_Weights | dict | str | Path | None):
+            weights for the model. If EfficientNet_B3_Weights, the model
+            will attempt to load the weights. If dict, the dict is
+            assumed to be a PyTorch state_dict without need to add a
+            linear layer for the final output. If str, then the value
+            "imagenet" will load the pre-trained IMAGENET1K_V1 weights
+            from the torchvision.models.efficientnet module;
+            otherwise, the str is assumed to be a path to the weights.
+            If Path,then the path is assumed to be the path to the
+            weights. If a string path or Path is provided, the model is
+            assumed not to need a linear layer for the final output.
+            If None, the model will be initialized with
+            random weights. Defaults to None.
+        seed (int): seed for initializing the weights.
+            Defaults to DEFAULT_SEED (42).
 
     Returns:
-        num_classes (int): number of classes in the dataset
         efficientnet_b3: the EfficientNet-B3 model that has been moved
             to the available device (cuda, mps, or cpu)
-        seed (int): seed for initializing the weights
     """
-    torch_set_seed(seed)
-
+    # create a linear layer for final output if using PyTorch default weights
     linear_out = Linear(in_features=1000, out_features=num_classes)
     init_range = 1.0 / linear_out.out_features**0.5
     uniform_(linear_out.weight, -init_range, init_range)
     zeros_(linear_out.bias)
 
-    if weights is None:
+    # create the model
+    if isinstance(weights, EfficientNet_B3_Weights):
+        # PyTorch pre-trained weights need a linear layer for the final output
+        model = Sequential(efficientnet_b3(weights=weights), linear_out)
+    elif weights == "imagenet":
+        # PyTorch pre-trained weights need a linear layer for the final output
         model = Sequential(
-            efficientnet_b3(),
+            efficientnet_b3(weights=EfficientNet_B3_Weights.IMAGENET1K_V1),
             linear_out,
         )
+    elif isinstance(weights, dict):
+        # create a default model as a template to load the state_dict onto
+        model = create_efficientnet_b3(num_classes=num_classes)  # type: ignore
+        # load the state_dict onto the model
+        model.load_state_dict(weights)
+    elif isinstance(weights, (str, Path)):
+        # create a default model as a template to load the state_dict onto
+        model = create_efficientnet_b3(num_classes=num_classes)  # type: ignore
+        # load the state_dict onto the model
+        model.load_state_dict(load(weights, weights_only=True))
     else:
-        model = Sequential(
-            efficientnet_b3(weights=weights),
-            linear_out,
-        )
+        # set seed for reproducibility
+        torch_set_seed(seed)
+        # create a model with random weights
+        model = Sequential(efficientnet_b3(), linear_out)
 
     return model.to(device=get_device())
 
 
-class SimpleModel(Module):
+def create_efficientnet_b0_w_head(
+    num_classes: int,
+    weights: EfficientNet_B0_Weights | dict | str | Path | None = None,
+    seed: int = DEFAULT_SEED,
+    device: str = get_device(),
+) -> Module:
     """
-    Simple model for testing purposes
+    Create an EfficientNet-B0 model with the specified weights
+    and a linear layer for the final output.
+
+    Args:
+        num_classes (int): number of classes in the dataset
+        weights (EfficientNet_B0_Weights | dict | str | Path | None):
+            weights for the model. If EfficientNet_B0_Weights, the model
+            will attempt to load the weights. If dict, the dict is
+            assumed to be a PyTorch state_dict without need to add a
+            linear layer for the final output. If str, then the value
+            "imagenet" will load the pre-trained IMAGENET1K_V1 weights
+            from the torchvision.models.efficientnet module;
+            otherwise, the str is assumed to be a path to the weights.
+            If Path,then the path is assumed to be the path to the
+            weights. If a string path or Path is provided, the model is
+            assumed not to need a linear layer for the final output.
+            If None, the model will be initialized with
+            random weights. Defaults to None.
+        seed (int): seed for initializing the weights.
+            Defaults to DEFAULT_SEED (42).
+        device (str): device to move the model to.
+            Defaults to the output of get_device().
+
+    Returns:
+        efficientnet_b0: the EfficientNet-B0 model that has been moved
+            to the available device (cuda, mps, or cpu)
     """
+    # create a linear layer for final output if using PyTorch default weights
+    linear_out = Linear(in_features=1000, out_features=num_classes)
+    init_range = 1.0 / linear_out.out_features**0.5
+    uniform_(linear_out.weight, -init_range, init_range)
+    zeros_(linear_out.bias)
 
-    def __init__(self, input_dims: list[int], num_classes: int) -> None:
-        super().__init__()
+    # create the model
+    if isinstance(weights, EfficientNet_B0_Weights):
+        # PyTorch pre-trained weights need a linear layer for the final output
+        model = Sequential(efficientnet_b0(weights=weights), linear_out)
+    elif weights == "imagenet":
+        # PyTorch pre-trained weights need a linear layer for the final output
+        model = Sequential(
+            efficientnet_b0(weights=EfficientNet_B0_Weights.IMAGENET1K_V1),
+            linear_out,
+        )
+    elif isinstance(weights, dict):
+        # create a default model as a template to load the state_dict onto
+        model = create_efficientnet_b0_w_head(
+            num_classes=num_classes
+        )  # type: ignore
+        # load the state_dict onto the model
+        model.load_state_dict(weights)
+    elif isinstance(weights, (str, Path)):
+        # create a default model as a template to load the state_dict onto
+        model = create_efficientnet_b0_w_head(
+            num_classes=num_classes
+        )  # type: ignore
+        # load the state_dict onto the model
+        model.load_state_dict(load(weights, weights_only=True))
+    else:
+        # set seed for reproducibility
+        torch_set_seed(seed)
+        # create a model with random weights
+        model = Sequential(efficientnet_b0(), linear_out)
 
-        # calculate the number of input features
-        input_features = 1
-        for dim in input_dims:
-            input_features *= dim
+    return model.to(device=device)
 
-        self.linear1 = Linear(in_features=input_features, out_features=1024)
-        self.linear2 = Linear(in_features=1024, out_features=1024)
-        self.linear3 = Linear(in_features=1024, out_features=1024)
-        self.linear4 = Linear(in_features=1024, out_features=1024)
-        self.linear5 = Linear(in_features=1024, out_features=num_classes)
 
-        self.relu = ReLU()
+def create_efficientnet_b0(
+    num_classes: int,
+    weights: dict | str | Path | None = None,
+    seed: int = DEFAULT_SEED,
+    device: str = get_device(),
+) -> Module:
+    """
+    Create an EfficientNet-B0 model with the specified weights.
 
-        self.batch_norm = BatchNorm1d(num_features=1024)
+    Args:
+        num_classes (int): number of classes in the dataset
+        weights (dict | str | Path | None): weights for the model.
+            If dict, the dict is assumed to be a PyTorch state_dict.
+            If str or Path, it is assumed to be a path to the weights.
+            If None, the model will be initialized with random weights.
+            Defaults to None.
+        seed (int): seed for initializing the weights.
+            Defaults to DEFAULT_SEED (42).
+        device (str): device to move the model to.
+            Defaults to the output of get_device().
 
-        normal_(self.linear1.weight, mean=0.0, std=0.01)
-        zeros_(self.linear1.bias)
-        normal_(self.linear2.weight, mean=0.0, std=0.01)
-        zeros_(self.linear2.bias)
-        normal_(self.linear3.weight, mean=0.0, std=0.01)
-        zeros_(self.linear3.bias)
-        normal_(self.linear4.weight, mean=0.0, std=0.01)
-        zeros_(self.linear4.bias)
-        normal_(self.linear5.weight, mean=0.0, std=0.01)
-        zeros_(self.linear5.bias)
+    Returns:
+        efficientnet_b0: the EfficientNet-B0 model that has been moved
+            to the available device (cuda, mps, or cpu)
+    """
+    # create a linear layer for final output if using PyTorch default weights
+    linear_out = Linear(in_features=1000, out_features=num_classes)
+    init_range = 1.0 / linear_out.out_features**0.5
+    uniform_(linear_out.weight, -init_range, init_range)
+    zeros_(linear_out.bias)
 
-        self.to(device=get_device())
+    # create the model
+    if isinstance(weights, EfficientNet_B0_Weights):
+        # PyTorch pre-trained weights need a linear layer for the final output
+        model = efficientnet_b0(weights=weights, num_classes=num_classes)
+    elif weights == "imagenet":
+        # PyTorch pre-trained weights need a linear layer for the final output
+        model = efficientnet_b0(
+            weights=EfficientNet_B0_Weights.IMAGENET1K_V1,
+            num_classes=num_classes,
+        )
+    elif isinstance(weights, dict):
+        # create a default model as a template to load the state_dict onto
+        model = create_efficientnet_b0(num_classes=num_classes)  # type: ignore
+        # load the state_dict onto the model
+        model.load_state_dict(weights)
+    elif isinstance(weights, (str, Path)):
+        # create a default model as a template to load the state_dict onto
+        model = create_efficientnet_b0(num_classes=num_classes)  # type: ignore
+        # load the state_dict onto the model
+        model.load_state_dict(load(weights, weights_only=True))
+    else:
+        # set seed for reproducibility
+        torch_set_seed(seed)
+        # create a model with random weights
+        model = efficientnet_b0(num_classes=num_classes)
 
-    def forward(self, x: Tensor) -> Tensor:
-        """
-        Forward pass of the model
-
-        Args:
-            x (Tensor): input tensor
-
-        Returns:
-            Tensor: output tensor
-        """
-        x = x.flatten(start_dim=1)  # assuming batched input in dim 0
-
-        fx = self.batch_norm(x)
-        fx = self.linear1(fx)
-        fx = self.relu(fx)
-
-        fx = self.batch_norm(fx)
-        fx = self.linear2(fx)
-        fx = self.relu(fx)
-
-        fx = self.batch_norm(fx)
-        fx = self.linear3(fx)
-        fx = self.relu(fx)
-
-        fx = self.batch_norm(fx)
-        fx = self.linear4(fx)
-        fx = self.relu(fx)
-
-        fx = self.linear5(fx)
-
-        return fx  # CrossEntropyLoss includes softmax
+    return model.to(device=device)
 
 
 class TestModel(Module):
@@ -178,14 +297,25 @@ class TestModel(Module):
     def __init__(self, input_dims: list[int], num_classes: int) -> None:
         super().__init__()
 
-        # calculate the number of input features
-        num_input_features = 1
-        for dim in input_dims:
-            num_input_features *= dim
+        # convolutional layer
+        self.conv = Conv2d(3, 1, 16, 16)
+        # initialize weights and biases
+        normal_(self.conv.weight, mean=0.0, std=0.01)
+        if self.conv.bias is not None:
+            zeros_(self.conv.bias)
 
+        # linear layer
         self.linear = Linear(
-            in_features=num_input_features, out_features=num_classes
+            int(
+                self.conv.out_channels
+                * input_dims[1]
+                / self.conv.kernel_size[0]
+                * input_dims[2]
+                / self.conv.kernel_size[1]
+            ),
+            num_classes,
         )
+        # initialize weights and biases
         normal_(self.linear.weight, mean=0.0, std=0.01)
         zeros_(self.linear.bias)
 
@@ -201,8 +331,9 @@ class TestModel(Module):
         Returns:
             Tensor: output tensor
         """
-        x = x.flatten(start_dim=1)  # assuming batched input in dim 0
+        fx = self.conv(x)
 
-        fx = self.linear(x)
+        fx = fx.flatten(start_dim=1)  # assuming batched input in dim 0
+        fx = self.linear(fx)
 
         return fx  # CrossEntropyLoss includes softmax

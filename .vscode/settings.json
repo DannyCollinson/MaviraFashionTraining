@@ -13,14 +13,19 @@
     },
     "notebook.defaultFormatter": "ms-python.black-formatter",
     "pylint.args": [
-        "--max-line-length=79"
+        "--max-line-length=79",
+        "--disable=not-context-manager",
+        "--disable=invalid-name"
     ],
+    // pylint not-context-manager disabled because of false positives
+    // with psycopg3's connection manager
     "black-formatter.args": [
         "--line-length=79"
     ],
     "autoDocstring.startOnNewLine": true,
     "isort.check": true,
     "python.analysis.diagnosticSeverityOverrides": {
+        "reportUnusedImport": "none",
         "reportMissingTypeArgument": "none",
         "reportMissingTypeStubs": "none",
         "reportUnknownArgumentType": "none",

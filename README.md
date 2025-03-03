@@ -1,9 +1,3 @@
-# Important
-This is a copy of the Mavira FashionTraining repository written solely by Danny Collinson for the purposes of providing a personal code sample. No permissions are granted to anyone outside of Mavira except for those outlined in GitHub's Terms of Use.
-
-This repository is a work in progress and will be updated periodically as changes to the parent repository are made.
-
-
 # Training your Personal Fashion Stylist
 
 The code here is for training the models used for the AI fashion assistant. It includes the `maviratrain` package. The guide below will guide you in setting up your system and environment to get started training your own models.
@@ -17,16 +11,16 @@ If you need help at any point, you can contact Danny Collinson at dannycollinson
 
 Follow the steps below in order and you should be all set up. If you need help at any point, contact Danny.
 0. If starting from scratch by creating a new Google Cloud Compute Engine VM, follow the __Instance Creation__ and __Connecting for the First Time__ sections of the __Google Cloud Compute Engine VM Setup__ section below, and return here when finished.
-1. If your machine has an NVIDIA GPU but does not have the appropriate NVIDIA drivers or CUDA toolkit installed, follow the __GPU Setup__ section below, and return here when finished.
-2. Run `mkdir programs` to create a directory for storing info about different programs that we will be using.
-3. Follow the __PostgreSQL Setup__ section below to set up the local PostgreSQL database used to track datasets, processing jobs, and experiments, and return here when finished.
-4. If you do not already have a GitHub account that is a member of the MaviraAI organization, contact Danny to help you set up a new account or connect an existing account to the MaviraAI organization.
-5. If `git` is not installed, (If running `git --help` throws an error, then it is likely not installed), follow the system-specific instructions at https://git-scm.com/downloads to install it. For Debian/Ubuntu systems, this is just `sudo apt install git`. To configure Git and to create a Personal Access Token (PAT) if needed for connecting to Mavira on GitHub, follow the directions in the __Git Setup__ section below, and return here when finished.
-6. From your home directory, use `mkdir mavira && cd mavira` to create and move into a new directory for Mavira projects.
-7. Clone this repository by running `git clone https://github.com/MaviraAI/FashionTraining.git` from your directory for Mavira projects. Enter your GitHub username and then the PAT that you created during __Git Setup__ as the password.
-8. If `micromamba` is not installed (If running `micromamba --help` throws an error, then it is likely not installed), follow https://mamba.readthedocs.io/en/latest/installation/micromamba-installation.html to install it. For Linux systems, this is just `"${SHELL}" <(curl -L micro.mamba.pm/install.sh)`. Except for the `MAMBA_ROOT_PREFIX` option, the default options are fine. For `MAMBA_ROOT_PREFIX`, use `~/programs/micromamba` when prompted instead of the default `~/micromamba`.
-9. Follow the __Python Environment Setup__ section below, and return here when finished.
-10. Install the following VS Code extensions: Python, Pylance, Pylint, Jupyter, Black Formatter, MyPy, autoDocstring, isort, Mypy Type Checker.
+1. If your machine has an NVIDIA GPU but does not have the appropriate NVIDIA drivers or CUDA Toolkit installed, follow the __GPU Setup__ section below, and return here when finished.
+2. Run `mkdir programs` to create a directory for storing info for some of the different programs that we will be using.
+3. If you do not already have a GitHub account that is a member of the MaviraAI organization, contact Danny to help you set up a new account or connect an existing account to the MaviraAI organization.
+4. If `git` is not installed, (If running `git --help` throws an error, then it is likely not installed), follow the system-specific instructions at https://git-scm.com/downloads to install it. For Debian/Ubuntu systems, this is just `sudo apt install git`. To configure Git and to create a Personal Access Token (PAT) if needed for connecting to Mavira on GitHub, follow the directions in the __Git Setup__ section below, and return here when finished.
+5. From your home directory, use `mkdir mavira && cd mavira` to create and move into a new directory for Mavira projects.
+6. Clone this repository by running `git clone https://github.com/MaviraAI/FashionTraining.git` from your directory for Mavira projects. Enter your GitHub username and then the PAT that you created during __Git Setup__ as the password.
+7. If `micromamba` is not installed (If running `micromamba --help` throws an error, then it is likely not installed), follow https://mamba.readthedocs.io/en/latest/installation/micromamba-installation.html to install it. For Linux systems, this is just `"${SHELL}" <(curl -L micro.mamba.pm/install.sh)`. Except for the `MAMBA_ROOT_PREFIX` option, the default options are fine. For `MAMBA_ROOT_PREFIX`, use `~/programs/micromamba` when prompted instead of the default `~/micromamba`.
+8. Follow the __Python Environment Setup__ section below, and return here when finished.
+9. Follow the __PostgreSQL Setup__ section below to set up the local PostgreSQL database used to track datasets, processing jobs, and experiments, and return here when finished.
+10. Install the following VS Code extensions: Python, Pylance, Pylint, Jupyter, Black Formatter, Mypy Type Checker, autoDocstring, and isort.
 11. Optionally, install the VS Code extensions SQLTools and SQLTools PostgreSQL/Cockroach Driver to interact with the PostgreSQL database through a VS Code-based interface.
 12. Install other VS Code extensions that you prefer to use and that do not conflict with those already installed; e.g., GitHub Copilot.
 13. Proceed to the __Getting Started__ section below.
@@ -36,7 +30,7 @@ Follow the steps below in order and you should be all set up. If you need help a
 The following instructions  will help you set up the correct Python environment. The end of this section contains an all-in-one command for creating, activating, and setting up the environment that will work for most systems.
 1. Run `micromamba create -n maviratrain && micromamba activate maviratrain` to create and activate a Python environment for training.
 2. Run `micromamba install fsspec pytest pytest-cov ipykernel seaborn python-dotenv sympy=1.13.1 numpy` and press `Enter` when prompted to install many of the necessary packages.
-3. Go to https://pytorch.org/ to get the command to run for your system for installing the PyTorch Preview release (You can remove `torchaudio` from the command). For a Linux or Windows machine using CUDA version 12.4, the command is `pip install --pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu124`, and for different CUDA versions, just change the last three characters.
+3. Go to https://pytorch.org/ to get the command to run for your system for installing the PyTorch Preview release (You can remove `torchaudio` from the command). For a Linux or Windows machine using CUDA version 12.6, the command is `pip install --pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu126`, and for different CUDA versions, just change the last three characters.
 4. Run `pip install psycopg[binary] torcheval` to install `psycopg` for interacting with our PostgreSQL database from Python and `torcheval` for computing training metrics.
 5. Run `micromamba clean --all --yes` to clean up after the `micromamba` installation process.
 6. Run `python -m ipykernel install --user --name maviratrain` to create an IPython kernel for use in notebooks.
@@ -48,7 +42,7 @@ As an alternative to the above, you can run a variation of the following command
 micromamba create -n maviratrain \
 && micromamba activate maviratrain \
 && micromamba install --yes fsspec pytest pytest-cov ipykernel seaborn python-dotenv sympy=1.13.1 numpy \
-&& pip install --pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu124 \
+&& pip install --pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu126 \
 && pip install psycopg[binary] torcheval \
 && micromamba clean --all --yes \
 && python -m ipykernel install --user --name maviratrain \
@@ -68,52 +62,47 @@ You can also set up Git credential storage so that you do not have to enter your
 ### GPU Setup
 If you are training locally, you likely already have a driver installed. However, you should still follow along with this guide to ensure that your driver is compatible with the needed CUDA version for the version of PyTorch that you want to use.
 
+We will be installing the CUDA Toolkit, which will automatically install the right compatible driver.
+
 If using Ops Agent on a Google Cloud VM, check the note at the following link: https://cloud.google.com/monitoring/agent/ops-agent/configuration?authuser=2#receiver-nvml-metrics. This is not something to worry about for our default configuration, but it is somthing to be aware of.
 
-This section is largely based on the following discussion: https://chatgpt.com/share/675f7d60-049c-8012-a551-66771a9fa839.
-
-1. Go to https://www.nvidia.com/Download/index.aspx%5C and input the information about your GPU and system to get the driver version that your GPU should use. If using Google Cloud Compute Engine Instances, you can also check https://cloud.google.com/compute/docs/gpus/install-drivers-gpu#minimum-driver, but still use the NVIDIA site, as we will need the link it provides.
-2. Once you are on the NVIDIA page for the driver that they recommend for your GPU, note the link that the Download button sends you to and save it for later.
-3. Check https://pytorch.org/ to see which CUDA versions are supported by the PyTorch version that you want to install.
-4. Select one that is compatible with your GPU and driver (check https://cloud.google.com/compute/docs/gpus/install-drivers-gpu#no-secure-boot and https://docs.nvidia.com/deploy/cuda-compatibility/index.html#binary-compatibility__table-toolkit-driver)
+1. Run `sudo apt install linux-headers-$(uname -r) build-essential dkms curl software-properties-common` to make sure that the required kernel headers and tools are installed before driver installation.
+2. Run `sudo systemctl stop gdm3` to stop any potential conflicting processes.
+3. Run `echo "deb [signed-by=/usr/share/keyrings/cuda-archive-keyring.gpg] https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/ /" | sudo tee /etc/apt/sources.list.d/cuda.list` to add the NVIDIA repository.
+4. Run `curl -fsSL https://developer.download.nvidia.com/compute/cuda/repos/<OS/architecture/file> | sudo gpg --dearmor -o /usr/share/keyrings/cuda-archive-keyring.gpg`, where `<OS/architecture/file>` is replaced by the correct info for your system to download the NVIDIA GPG key and add it the keyring directory. For Debian 12 on x86_64, this is `debian12/x86_64/3bf863cc.pub`.
 5. Run `sudo apt update && sudo apt upgrade` to update and upgrade system packages.
-6. Run `sudo apt install linux-headers-$(uname -r) build-essential dkms curl software-properties-common` to make sure that the required kernel headers and tools are installed before driver installation.
-7. Run `wget <driver_download_link>`, where you replace `<driver_download_link>` with the link you copied from the NVIDIA website in step 2, to download the NVIDIA driver.
-8. Run `sudo systemctl stop gdm3` to stop any potential conflicting processes.
-9. Run `chmod +x <your_downloaded_driver>` and `sudo ./<your_downloaded_driver>`, where `<your_downloaded_driver>` is replaced by the filename of the driver downloaded in step 7, to first make the installer executable and then to run it and install the driver. There may be some warnings about Vulkan and/or 32-bit compatability, but they can be ignored. It will likely also ask you to reboot your system and then run the command again. If using Google Cloud VMs, stop the instance, start it again, reconnect, and run the second command again.
-10. Run `nvidia-smi` to verify that the GPU is listed and that the correct driver version has been installed.
-11. Run `echo "deb [signed-by=/usr/share/keyrings/cuda-archive-keyring.gpg] https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/ /" | sudo tee /etc/apt/sources.list.d/cuda.list` to add the NVIDIA repository.
-12. Run `curl -fsSL https://developer.download.nvidia.com/compute/cuda/repos/<OS/architecture/file> | sudo gpg --dearmor -o /usr/share/keyrings/cuda-archive-keyring.gpg`, where `<OS/architecture/file>` is replaced by the correct info for your system to download the NVIDIA GPG key and add it the keyring directory. For Debian 12 on x86_64, this is `debian12/x86_64/3bf863cc.pub`.
-13. Run `sudo apt update` to update the package lists.
-14. Run `sudo apt install cuda-<major-minor>`, where `<major-minor>` are the major and minor versions of the CUDA toolkit that you want to install; e.g., run `sudo apt install cuda-12-4` to install version 12.4.
-15. Run `nvcc --version` to confirm that the correct CUDA toolkit version was installed.
-16. Replace `<major.minor>` in the following two commands with the major and minor versions of the CUDA toolkit that you want to install, and then run them: `echo 'export PATH=/usr/local/cuda-<major.minor>/bin:$PATH' >> ~/.bashrc` and `echo 'export LD_LIBRARY_PATH=/usr/local/cuda-<major.minor>/lib64:$LD_LIBRARY_PATH' >> ~/.bashrc` to add the needed environment variables.
-17. Reboot your system as before, then test your installations by running `nvidia-smi` and `nvcc --version` again. After setting up the Python environment and updating/upgrading my system, I found that the driver and CUDA versions listed when running `nvidia-smi` had increased, but running `nvcc --version` gave the same result as before. This does not seem to have caused any issues with PyTorch, so I left it as is.
+6. Go to https://pytorch.org/get-started/locally/ to check the versions
+7. Run `sudo apt install cuda-<major-minor>`, where `<major-minor>` are the major and minor versions of the CUDA Toolkit that you want to install; e.g., run `sudo apt install cuda-12-6` to install version 12.6. You may have to try several versions to get it to work, depending on which packages are available in the NVIDIA repository and the system you are using. We recommend starting from the most recent CUDA version supported by PyTorch and working backwards until one is available.
+8. Run `nvidia-smi` to confirm that the driver and toolkit were installed correctly. The versions listed in the output may differ from what you specified in the install (They will likely be higher, if so), but this should not cause problems. If you find that it does, contact Danny for support. They may also change when setting up or updating the python environment or upgrading the system, but this also did not cause issues. If you find that it does, contact Danny for support.
+9. Replace `<major.minor>` in the following two commands with the major and minor versions of the CUDA Toolkit that you want to install, and then run them: `echo 'export PATH=/usr/local/cuda-<major.minor>/bin:$PATH' >> ~/.bashrc` and `echo 'export LD_LIBRARY_PATH=/usr/local/cuda-<major.minor>/lib64:$LD_LIBRARY_PATH' >> ~/.bashrc` to add the needed environment variables.
 
 
 ### PostgreSQL Setup
 Each machine used for training runs a local PostgreSQL server to keep track of our datasets, processing jobs, and experiments. To set up the installation, follow the steps below. As always, contact Danny if you need support.
 1. Go to https://www.postgresql.org/download/ and select your operating system to get the correct installation instructions. If running Windows, we recommend using WSL and selecting the corresponding Linux distribution, but if not, you must download an installer. If running a Debian/Ubuntu-based distribution, you will likely have to configure the PostgreSQL repository to get the latest version. This is done by running `sudo apt install postgresql-common`, followed by `sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh`, and finally `sudo apt update`. You can then run `sudo apt install postgresql` to install the latest version. After installation is complete, run `psql --version` to check what version of PostgreSQL is installed. As of this writing (December 2024), this should be version 17.
-2. Danny should have provided you with a `.env` file; contact him if not. The `.env` file has an entry in the `.gitignore` file, so it should not be included in version control GitHub commits to ensure that the secrets that it contains remain secret.
-3. If training locally, simply place the `.env` file in the top-level (main) directory of the FashionTraining project. If using a Google Cloud VM, follow the instructions at https://cloud.google.com/compute/docs/instances/transfer-files#transfergcloud to copy the `.env` file from your local machine to the top-level directory of the FashionTraining project on the VM, which is done by running `gcloud compute scp <local_path> <VM_name>:<remote_path>` on your local machine, replacing `<local_path>` to the path to the `.env` file on your local machine, `<VM_name>` with the name of the Google Cloud VM (e.g., `fashiontraining-001`), and `<remote_path>` with the path on the VM that you want to put the `.env` file (e.g., `~/mavira/FashionTraining/.env`). See the __Other Notes__ section below if you run into difficulties.
-4. Run `mkdir ~/programs/postgresql` to create a directory to store our PostgreSQL passfile. Open the `.env` file from step 3 and note the entries `POSTGRESQL_USERPOSTGRES_PASSWORD` and `POSTGRESQL_USERMAVIRA_PASSWORD`. Then, run `nano ~/programs/postgresql/.pgpass` to bring up an editor for our new PostgreSQL passfile. Insert the three lines below, replacing `<postgres_password>` and `<mavira_password>` with the values of `POSTGRESQL_USERPOSTGRES_PASSWORD` and `POSTGRESQL_USERMAVIRA_PASSWORD` from the `.env` file, respectively. Once finished, press `Ctrl+O`, then `Enter`, and finally `Ctrl+X` to save the file and exit the editor.
+2. In the root directory of the training repository, create a `.env` file by running `nano .env`; this file is already included in the `.gitignore` file, so it will not be included in version control. Add the two lines below to the file, replacing `<password>` and `<password2>` with passwords of your choosing (remember them for the next steps). Once finished, press `Ctrl+O`, then `Enter`, and finally `Ctrl+X` to save the file and exit the editor.
+```
+POSTGRESQL_USERPOSTGRES_PASSWORD=<password1>
+POSTGRESQL_USERMAVIRA_PASSWORD=<password2>
+```
+3. Run `mkdir ~/programs/postgresql` to create a directory to store our PostgreSQL passfile. Then, run `nano ~/programs/postgresql/.pgpass` to bring up an editor for our new PostgreSQL passfile. Insert the three lines below, replacing `<postgres_password>` and `<mavira_password>` with the values of `POSTGRESQL_USERPOSTGRES_PASSWORD` and `POSTGRESQL_USERMAVIRA_PASSWORD` from the `.env` file, respectively. Once finished, press `Ctrl+O`, then `Enter`, and finally `Ctrl+X` to save the file and exit the editor.
 ```
 # hostname:port:database:username:password
 localhost:5432:mavirafashiontrainingdb:postgres:<postgres_password>
 localhost:5432:mavirafashiontrainingdb:mavira:<mavira_password>
 ```
-5. Run the command `sudo passwd postgres` to create a password for the 'postgres' poweruser. Enter the password for the `postgres` user that you used in step 4; i.e., the value for `POSTGRESQL_USERPOSTGRES_PASSWORD` from step 4.
-6. Run `sudo find / -name initdb` to locate the location of the `initdb` command. It should be something like `/usr/lib/postgresql/<version>/bin/initdb`, where `<version>` is replaced by the major version of PostgreSQL that you installed, e.g., 17 for version 17.
-7. Run `sudo su - postgres` to switch to the 'postgres' user and enter the same password you set in step 6, if prompted. Next, run `<initdb_location> -D /var/lib/postgresql/<version>/data`—replacing `<initdb_location>` with the location found in step 6 and replacing `<version>` as in step 6—to allow PostgreSQL to store data on your system at `/var/lib/postgresql/<version>/data`. Then, run `logout` to switch back from the `postgres` user to your own user.
-8. Run `sudo systemctl start postgresql` to start the local PostgreSQL server, then `sudo systemctl enable postgresql` to finish setting up the server, and finally `sudo systemctl status postgresql` to verify that it is working properly.
-9. Switch back to the 'postgres' user using `sudo su - postgres` and log in to psql by running `psql`.
-10. From within the psql console, run `CREATE ROLE mavira WITH CREATEDB LOGIN PASSWORD '<mavira_password>';`, replacing `<mavira_password>` with the password for the `mavira` user that you used in step 4 (i.e., the value for `POSTGRESQL_USERMAVIRA_PASSWORD` from step 4) to create a new user named 'mavira'. Be sure to retain the single quotes ('') around the `<mavira_password>`.
-11. Run `GRANT ALL PRIVILEGES ON DATABASE template1 TO mavira;` to enable to the `mavira` user to connect to the `template1` database.
-12. Run `\q` to quit psql and then run `logout` to log out as the `postgres` user.
-13. Run `psql -U mavira template1 -h localhost` to log in as the `mavira` user on the `template1` database. Enter the password that you set for the `mavira` user in step 10 when prompted.
-14. Run `CREATE DATABASE mavirafashiontrainingdb;` and then `GRANT ALL PRIVILEGES ON DATABASE mavirafashiontrainingdb TO mavira;` to make sure that the `mavira` user can access the new database.
-15. Run `\q` to log out of the connection to the template database. Confirm that you can connect to the new database by running `psql -U mavira mavirafashiontrainingdb -h localhost`, entering the password from step 10 again when prompted, then disconnect with `\q`.
-16. Run the commands `echo 'export PGPASSFILE=~/programs/postgresql/.pgpass' >> ~/.bashrc` and `echo 'chmod 600 $PGPASSFILE' >> ~/.bashrc` to add two lines to the `~/.bashrc` file that will enable you to log in to PostgreSQL in the future as either user without needing to enter a password.
+4. Run the command `sudo passwd postgres` to create a password for the `postgres` poweruser. Enter the password for the `postgres` user that you used in step 3; i.e., the value for `POSTGRESQL_USERPOSTGRES_PASSWORD` from step 3.
+5. Run `sudo find / -name initdb` to locate the location of the `initdb` command. It should be something like `/usr/lib/postgresql/<version>/bin/initdb`, where `<version>` is replaced by the major version of PostgreSQL that you installed, e.g., 17 for version 17.
+6. Run `sudo su - postgres` to switch to the 'postgres' user and enter the same password you set in step 5, if prompted. Next, run `<initdb_location> -D /var/lib/postgresql/<version>/data`—replacing `<initdb_location>` with the location found in step 5 and replacing `<version>` as in step 5—to allow PostgreSQL to store data on your system at `/var/lib/postgresql/<version>/data`. Then, run `logout` to switch back from the `postgres` user to your own user.
+7. Run `sudo systemctl start postgresql` to start the local PostgreSQL server, then `sudo systemctl enable postgresql` to finish setting up the server, and finally `sudo systemctl status postgresql` to verify that it is working properly.
+8. Switch back to the 'postgres' user using `sudo su - postgres` and log in to psql by running `psql`.
+9. From within the psql console, run `CREATE ROLE mavira WITH CREATEDB LOGIN PASSWORD '<mavira_password>';`, replacing `<mavira_password>` with the password for the `mavira` user that you used in step 3 (i.e., the value for `POSTGRESQL_USERMAVIRA_PASSWORD` from step 3) to create a new user named 'mavira'. Be sure to retain the single quotes ('') around the `<mavira_password>`.
+10. Run `GRANT ALL PRIVILEGES ON DATABASE template1 TO mavira;` to enable to the `mavira` user to connect to the `template1` database.
+11. Run `\q` to quit psql and then run `logout` to log out as the `postgres` user.
+12. Run `psql -U mavira template1 -h localhost` to log in as the `mavira` user on the `template1` database. Enter the password that you set for the `mavira` user in step 9 when prompted.
+13. Run `CREATE DATABASE mavirafashiontrainingdb;` and then `GRANT ALL PRIVILEGES ON DATABASE mavirafashiontrainingdb TO mavira;` to make sure that the `mavira` user can access the new database.
+14. Run `\q` to log out of the connection to the template database. Confirm that you can connect to the new database by running `psql -U mavira mavirafashiontrainingdb -h localhost`, entering the password from step 9 again when prompted, then disconnect with `\q`.
+15. Run the commands `echo 'export PGPASSFILE=~/programs/postgresql/.pgpass' >> ~/.bashrc` and `echo 'chmod 600 $PGPASSFILE' >> ~/.bashrc` to add two lines to the `~/.bashrc` file that will enable you to log in to PostgreSQL in the future as either user without needing to enter a password.
 
 
 ### Google Cloud Compute Engine VM Setup
@@ -124,7 +113,7 @@ localhost:5432:mavirafashiontrainingdb:mavira:<mavira_password>
 2. For fashion training, the naming convention is to name the instance "fashiontraining-XXX", where XXX is a 1-indexed left-zero-padded integer denoting the number of the instance, starting with 001 and incrementing by 1 with each instance.
 3. Select "us-central1 (Iowa)" as the Region and "us-central1-a" as the Zone unless desired otherwise.
 4. Select the type of instance that you want to create. As a default, we recommend an n1-standard-4 instance with a T4 GPU attached, upgrading to a V100 GPU if a more powerful GPU is needed.
-5. Under the OS and Storage section in the side menu, select Change under the main section and select the operating system and disk that you want. As a default, we recommend Debian GNU/Linux 12 (bookworm) x86/64, amd64; a Balanced persistent disk, and a 256 GB size. The size should be at least 40 GB for the OS and software that we need to install, plus enough storage for any datasets, model checkpoints, and other files that you need to store.
+5. Under the OS and Storage section in the side menu, select Change under the main section and select the operating system and disk that you want. As a default, we recommend Debian GNU/Linux 12 (bookworm) x86/64, amd64; a Balanced persistent disk, and a 400 GB size. The size should be at least 40 GB for the OS and software that we need to install, plus enough storage for any datasets, model checkpoints, and other files that you need to store.
 6. Select Add Local SSD towards the bottom of the same page and configure as desired. We recommend using 0 hours before timeout because important files are stored on the persistent disk. A single drive (375 GB) should be sufficient to store any datasets for active training.
 7. Under Observability on the left, enable the Ops Agent option. Note the message underneath, as we will have to set this up later.
 8. Under Advanced, select Spot as the Provisioning Model, as this gives significant cost savings.
@@ -186,8 +175,8 @@ The first step is to run `bash ./scripts/initial_setup.sh` from the main directo
 
 ### Training Models
 0. Currently, only classifier training has been implemented, so MAE training does not yet work. We will update this in the future when we have implemented MAE training.
-1. Open the notebook `classifier_training.ipynb` found in the `./notebooks` directory.
-2. Work through the cells of the notebook to set up PyTorch datasets and dataloaders, the model to train, optimizers and learning rate schedulers, and other hyperparameters, then train your model! Checkpoints will automatically be saved to the `./checkpoints/classifier` or `./checkpoints/mae` directories, logs will be saved to the `./logs/train_runs` directory before being zipped and stored in the `./logs/archive/train_runs` directory after training has terminated successfully, and important results and updates will also be printed to the notebook's console.
+1. Make a copy of the file `./scripts/run_classifier_training.py` called `./scripts/local_run_classifier_training.py`
+2. Work through the file to set up PyTorch datasets and dataloaders, the model to train, optimizers and learning rate schedulers, and other hyperparameters, then train your model! Checkpoints will automatically be saved to the `./checkpoints/classifier` or `./checkpoints/mae` directories, logs will be saved to the `./logs/train_runs` directory before being zipped and stored in the `./logs/archive/train_runs` directory after training has terminated successfully, and important results and updates will also be printed to the notebook's console.
 
 
 ## Help

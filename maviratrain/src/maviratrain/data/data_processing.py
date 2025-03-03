@@ -7,8 +7,7 @@ import os
 import random
 import re
 
-# # TODO: remove the pylint disable once the issue is resolved
-from collections.abc import Callable  # pylint: disable=import-error
+from collections.abc import Callable
 from pathlib import Path
 from subprocess import run
 
@@ -41,8 +40,7 @@ from ..utils.registration.register_data import register_dataset
 # set up logger
 logger = get_logger(
     "mt.data.data_processing",
-    # should be running from a notebook, hence the ../
-    log_filename="../logs/data_processing/data_processing.log",
+    log_filename=("../logs/data_processing/data_processing.log"),
     rotation_params=(1000000, 1000),  # 1 MB, 1000 backups
 )
 
@@ -497,8 +495,6 @@ def normalize_data(
     # make sure the method is in the normalization_methods database table
     methods = []
     postgres_connection_string = get_postgres_connection_string()
-    # pylint has a false positive when using psycopg 3's new context managers
-    # pylint: disable=not-context-manager
     with connect(postgres_connection_string, autocommit=True) as conn:
         with conn.cursor() as curs:
             curs.execute(
@@ -518,7 +514,6 @@ def normalize_data(
                 )
                 logger.error_("%s", message)
                 raise ValueError(message)
-    # pylint: enable=not-context-manager
 
     logger.info_(
         "Beginning normalization of data at %s using %s and saving at %s...",

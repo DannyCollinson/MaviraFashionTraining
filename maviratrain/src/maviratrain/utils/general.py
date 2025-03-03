@@ -3,8 +3,7 @@
 import datetime
 import os
 
-# TODO: remove the pylint disable once the issue is resolved
-from collections.abc import Callable  # pylint: disable=import-error
+from collections.abc import Callable
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -231,8 +230,6 @@ def get_loading_function(extension: str) -> Callable:
     """
     # get valid extensions and associated loading functions for cleaned images
     postgres_connection_string = get_postgres_connection_string()
-    # pylint has a false positive when using psycopg 3's context managers
-    # pylint: disable=not-context-manager
     with connect(postgres_connection_string) as conn:
         with conn.cursor() as curs:
             # get valid extensions for cleaned images
@@ -246,7 +243,6 @@ def get_loading_function(extension: str) -> Callable:
             valid_extensions = {ext[0] for ext in res}
             # save loading functions as dictionary
             loading_funcs = {ext[0]: ext[1] for ext in res}
-    # pylint: enable=not-context-manager
 
     # make sure the extension is valid
     assert extension in valid_extensions, (
@@ -295,8 +291,6 @@ def get_save_function(extension: str) -> Callable:
     """
     # get valid extensions and associated saving functions for cleaned images
     postgres_connection_string = get_postgres_connection_string()
-    # pylint has a false positive when using psycopg 3's context managers
-    # pylint: disable=not-context-manager
     with connect(postgres_connection_string) as conn:
         with conn.cursor() as curs:
             # get valid extensions for cleaned images
@@ -310,7 +304,6 @@ def get_save_function(extension: str) -> Callable:
             valid_extensions = {ext[0] for ext in res}
             # save functions as dictionary
             save_funcs = {ext[0]: ext[1] for ext in res}
-    # pylint: enable=not-context-manager
 
     # make sure the extension is valid
     assert extension in valid_extensions, (
@@ -453,8 +446,6 @@ def get_data_processing_job_id(new: bool = False) -> int:
     """
     job_id = -1  # placeholder for job_id
     postgres_connection_string = get_postgres_connection_string()
-    # pylint has a false positive when using psycopg 3's context managers
-    # pylint: disable=not-context-manager
     with connect(postgres_connection_string) as conn:
         with conn.cursor() as curs:
             curs.execute("SELECT MAX(id) FROM data_processing_jobs;")
@@ -472,7 +463,6 @@ def get_data_processing_job_id(new: bool = False) -> int:
                 )
                 # if no jobs have been run yet, start at 1
                 job_id = 0
-    # pylint: enable=not-context-manager
 
     # if getting a job ID for a job before it starts, increment the job ID
     if new:
@@ -493,8 +483,6 @@ def get_dataset_id(data_path: Path | str) -> int:
     """
     dataset_id = -1  # placeholder for dataset_id
     postgres_connection_string = get_postgres_connection_string()
-    # pylint has a false positive when using psycopg 3's context managers
-    # pylint: disable=not-context-manager
     with connect(postgres_connection_string) as conn:
         with conn.cursor() as curs:
             curs.execute(
@@ -506,6 +494,5 @@ def get_dataset_id(data_path: Path | str) -> int:
             else:
                 # if no dataset is found, raise an error
                 raise FileNotFoundError(f"No dataset found at {data_path}.")
-    # pylint: enable=not-context-manager
 
     return dataset_id

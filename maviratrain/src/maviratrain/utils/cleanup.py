@@ -35,7 +35,7 @@ def clean_up_checkpoint(checkpoint_path: Path | str) -> None:
     Args:
         checkpoint_path (str): path to the checkpoint
     """
-    logger.set_log_filename("../logs/train_runs/training.log")
+    logger.set_log_filename("../logs/train_runs/classifier/training.log")
     logger.debug_("Deleting checkpoint at %s", checkpoint_path)
 
     # delete the checkpoint
@@ -50,7 +50,7 @@ def clean_up_checkpoints(checkpoint_dir: Path | str) -> None:
         checkpoint_dir (str): path to the directory
             containing checkpoints to be cleaned up
     """
-    logger.set_log_filename("../logs/train_runs/training.log")
+    logger.set_log_filename("../logs/train_runs/classifier/training.log")
     logger.debug_("Deleting stale checkpoints in %s", checkpoint_dir)
 
     # TODO: implement this function

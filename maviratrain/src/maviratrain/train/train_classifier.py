@@ -4,8 +4,7 @@ Module defining training routines for Mavira's classifier models.
 
 import time
 
-# TODO: remove the pylint disable once the issue is resolved
-from collections.abc import Callable  # pylint: disable=import-error
+from collections.abc import Callable
 
 import torch
 from torch import nn, no_grad, optim
@@ -17,8 +16,7 @@ from maviratrain.utils.general import get_device, get_logger, get_time
 # set up logger
 logger = get_logger(
     "mt.train.train_classifier",
-    # should be running from a notebook, hence the ../
-    log_filename="../logs/train_runs/train_classifier.log",
+    log_filename=("../logs/train_runs/classifier/train_classifier.log"),
     rotation_params=(1000000, 1000),  # 1 MB, 1000 backups
 )
 
@@ -130,11 +128,11 @@ class Trainer:
             for optimizer in self.optimizers:
                 optimizer.zero_grad(set_to_none=True)  # default=True
 
-            x = x.to(device="cuda")  # TODO: replace temporary fix
+            x = x.to(device=self.device)  # TODO: implement multi-GPU training
             fx = model(x)  # forward pass
 
             # make sure label on correct device
-            y = y.to(device=self.device)
+            y = y.to(device=self.device)  # TODO: implement multi-GPU training
 
             loss = self.loss_fn(fx, y)  # user-supplied loss function
             loss.backward()  # backward pass
@@ -195,10 +193,10 @@ class Trainer:
 
         with no_grad():
             for x, y in self.val_loader:
-                x = x.to(device="cuda")  # TODO: replace temporary fix
+                x = x.to(device=self.device)  # TODO: implement multi-GPU
                 fx = model(x)  # forward pass
 
-                y = y.to(device=self.device)  # put label on correct device
+                y = y.to(device=self.device)  # TODO: implement multi-GPU
                 loss = self.loss_fn(fx, y)  # user-supplied loss function
 
                 total_loss += loss.item()  # add batch loss to running loss
@@ -222,6 +220,7 @@ class Trainer:
         model: nn.Module,
         n_epochs: int | None = None,
         n_steps: int | None = None,
+        val_interval: int = 1,
     ) -> tuple[nn.Module, int, int]:
         """
         Trains the model for n_epochs or n_steps
@@ -234,6 +233,7 @@ class Trainer:
             n_steps (int | None): number of steps to train for
                 If n_steps is not None, n_epochs must be None.
                 Defaults to None
+            val_interval (int): number of epochs between validation runs
 
         Returns:
             nn.Module: the trained model
@@ -262,44 +262,52 @@ class Trainer:
         start_time = time.time()  # track the total training time
 
         # track best stats for model checkpointing
-        # best_val_loss = torch.inf  # TODO: uncomment when implemented
-        best_val_acc = 0.0
+        best_val_loss = torch.inf
+        best_val_acc1 = 0.0
+        best_val_acc5 = 0.0
 
         try:  # except KeyboardInterrupt for stopping training
             while steps_left > 0:
-                # run validation first to get baseline on first epoch
-                if self.val_loader is not None:  # only run if we have val data
+                # if available and scheduled, run validation
+                # note: validation is run before training to get a baseline
+                # for metrics and training time before beginning real training
+                if (
+                    self.val_loader is not None
+                    and (cur_epoch + 1) % val_interval == 0
+                ):
+                    val_start_time = time.time()
                     val_loss, val_acc1, val_acc5 = self.validation(model=model)
                     self.val_stats[0].append(val_loss)  # record val loss
                     self.val_stats[1].append(val_acc1)  # record val accuracy
                     self.val_stats[2].append(val_acc5)  # record val acc@5
+                    val_end_time = time.time()
                     logger.info_(
                         f"Val Epoch: {cur_epoch + 1}        "  # 8 spaces
                         f"Loss: {val_loss:.4f}        "  # 8 spaces
                         f"Accuracy: {val_acc1:.2f}        "  # 8 spaces
-                        f"Top-5 Accuracy: {val_acc5:.2f}"
+                        f"Top-5 Accuracy: {val_acc5:.2f}        "  # 8 spaces
+                        f"Time: {val_end_time - val_start_time:.2f}"
                     )
-                    # TODO
-                    # save model checkpoint if new best loss or accuracy
-                    # if val_loss < best_val_loss:
-                    #     best_val_loss = val_loss
-                    #     model_path = (
-                    #         "/home/danny/mavira/FashionTraining/checkpoints/"
-                    #         f"vit_E{cur_epoch}_S{n_steps - steps_left}_"
-                    #         f"L{best_val_loss}_T{get_time()}.pt"
-                    #     )
-                    #     torch.save(model.state_dict(), model_path)
-                    # elif val_acc > best_val_acc:
-                    if val_acc1 > best_val_acc:
-                        best_val_acc = val_acc1
+
+                    # save model checkpoint if a validation improvement is made
+                    if cur_epoch >= 0 and (
+                        val_loss < best_val_loss
+                        or val_acc1 > best_val_acc1
+                        or val_acc5 > best_val_acc5
+                    ):
+                        best_val_acc1 = max(val_acc1, best_val_acc1)
+                        best_val_acc5 = max(val_acc5, best_val_acc5)
+                        best_val_loss = min(val_loss, best_val_loss)
                         model_path = (
-                            "/home/danny/mavira/FashionTraining/checkpoints/"
-                            f"temp{cur_epoch + 1}_S{n_steps - steps_left}_"
-                            f"A{best_val_acc}_T{get_time()}.pt"
+                            "../checkpoints/classifier/"
+                            f"jX-A{best_val_acc1:.1f}-a{best_val_acc5:.1f}-"
+                            f"L{best_val_loss:.2f}-E{cur_epoch + 1}"
+                            f"-T{get_time().replace(":", "-")}.pt"
                         )
                         torch.save(model.state_dict(), model_path)
+                        logger.info("Saved model checkpoint to %s", model_path)
 
-                prev_time = time.time()  # track the time per epoch
+                train_start_time = time.time()  # track the time per epoch
 
                 cur_epoch += 1  # update epoch count
 
@@ -318,15 +326,14 @@ class Trainer:
                 for scheduler in self.schedulers:
                     scheduler.step()
 
-                cur_time = time.time()
+                train_end_time = time.time()
                 logger.info_(
                     f"Train Epoch: {cur_epoch + 1}        "  # 8 spaces
                     f"Loss: {train_loss:.4f}        "  # 8 spaces
                     f"Accuracy: {train_acc1:.2f}        "  # 8 spaces
                     f"Top-5 Accuracy: {train_acc5:.2f}        "  # 8 spaces
-                    f"Time: {cur_time - prev_time:.2f}"
+                    f"Time: {train_end_time - train_start_time:.2f}"
                 )
-                prev_time = cur_time  # update time
 
         except KeyboardInterrupt:
             pass
@@ -334,7 +341,10 @@ class Trainer:
         try:  # except KeyboardInterrupt for stopping everything
             # run one more validation
             if self.val_loader is not None:  # only run if we have val data
-                message = "\nRunning final evaluation:"
+                message = (
+                    "\nRunning final validation after "
+                    f"{cur_epoch + 1} training epochs:"
+                )
                 logger.info_(message)
                 val_loss, val_acc1, val_acc5 = self.validation(model=model)
                 self.val_stats[0].append(val_loss)  # record val loss
@@ -347,50 +357,25 @@ class Trainer:
                     f"Total Time: {time.time() - start_time:.2f}"
                 )
 
-                # TODO
-                # save model checkpoint if new best loss or accuracy
-                # if val_loss < best_val_loss:
-                #     best_val_loss = val_loss
-                #     model_path = (
-                #         "/home/danny/mavira/FashionTraining/checkpoints/"
-                #         f"vit_E{cur_epoch}_S{n_steps - steps_left}_"
-                #         f"L{best_val_loss:.2f}_T{get_time()[:-5]}.pt"
-                #     )
-                #     torch.save(model.state_dict(), model_path)
-                # elif val_acc > best_val_acc:
-                #     best_val_acc = val_acc
-                #     model_path = (
-                #         "/home/danny/mavira/FashionTraining/checkpoints/"
-                #         f"vit_E{cur_epoch}_S{n_steps - steps_left}_"
-                #         f"A{best_val_acc:.2f}_T{get_time()[:-5]}.pt"
-                #     )
-                #     torch.save(model.state_dict(), model_path)
-                # if val_acc > best_val_acc:
-                #     best_val_acc = val_acc
-                #     model_path = (
-                #         "/home/danny/mavira/FashionTraining/checkpoints/"
-                #         f"vit_E{cur_epoch}_A{best_val_acc:.2f}-"
-                #         f"{get_time()[:-5]}.pt"
-                #     )
-                #     torch.save(model.state_dict(), model_path)
-                if val_acc1 > best_val_acc:
-                    best_val_acc = val_acc1
+                # save model checkpoint if a validation improvement is made
+                if cur_epoch >= 0 and (
+                    val_loss < best_val_loss
+                    or val_acc1 > best_val_acc1
+                    or val_acc5 > best_val_acc5
+                ):
+                    best_val_acc1 = max(val_acc1, best_val_acc1)
+                    best_val_acc5 = max(val_acc5, best_val_acc5)
+                    best_val_loss = min(val_loss, best_val_loss)
                     model_path = (
-                        "/home/danny/mavira/FashionTraining/checkpoints/"
-                        f"temp{cur_epoch + 1}_A{best_val_acc:.2f}-"
-                        f"{get_time()[:-5]}.pt"
+                        "../checkpoints/classifier/"
+                        f"jX-A{best_val_acc1:.1f}-a{best_val_acc5:.1f}-"
+                        f"L{best_val_loss:.2f}-E{cur_epoch + 1}"
+                        f"-T{get_time().replace(":", "-")}.pt"
                     )
                     torch.save(model.state_dict(), model_path)
+                    logger.info("Saved model checkpoint to %s", model_path)
 
         except KeyboardInterrupt:
             pass
-
-        # TODO
-        model_path = (
-            "/home/danny/mavira/FashionTraining/checkpoints/classifier/"
-            f"enet{cur_epoch + 1}_S{n_steps - steps_left}_"
-            f"A{best_val_acc}_T{get_time()}.pt"
-        )
-        torch.save(model.state_dict(), model_path)
 
         return model, n_steps - steps_left, cur_epoch
