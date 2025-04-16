@@ -52,7 +52,14 @@ def minmax_normalize(
         data_path=out_path, split_test=False, outside_logger=logger
     )
 
-    out_path = str(out_path).strip("/") + "/"  # ensure trailing slash
+    # standardize out path
+    # check if path is absolute
+    if str(out_path)[0] == "/":
+        prefix = "/"
+    else:
+        prefix = ""
+    # add trailing slash to path if not already present for consistency
+    out_path = prefix + str(out_path).strip("/") + "/"
 
     # get the file extension for saving later
     extension = get_dataset_extension(data_path)
@@ -133,7 +140,14 @@ def minmax_extended_normalize(
         data_path=out_path, split_test=False, outside_logger=logger
     )
 
-    out_path = str(out_path).strip("/") + "/"  # ensure trailing slash
+    # standardize out path
+    # check if path is absolute
+    if str(out_path)[0] == "/":
+        prefix = "/"
+    else:
+        prefix = ""
+    # add trailing slash to path if not already present for consistency
+    out_path = prefix + str(out_path).strip("/") + "/"
 
     # get the file extension for saving later
     extension = get_dataset_extension(data_path)
@@ -214,7 +228,14 @@ def zscore_normalize(
         data_path=out_path, split_test=False, outside_logger=logger
     )
 
-    out_path = str(out_path).strip("/") + "/"  # ensure trailing slash
+    # standardize out path
+    # check if path is absolute
+    if str(out_path)[0] == "/":
+        prefix = "/"
+    else:
+        prefix = ""
+    # add trailing slash to path if not already present for consistency
+    out_path = prefix + str(out_path).strip("/") + "/"
 
     # get the file extension for saving later
     extension = get_dataset_extension(data_path)
@@ -261,7 +282,7 @@ def zscore_normalize(
 
     # save the statistics
     stats_path = Path(
-        os.path.join(out_path, "..", "stats", f"zscore-j{job_id}")
+        os.path.join(out_path, "..", "stats", f"zscore-j{job_id:03}")
     )
     torch.save(channel_means, str(stats_path) + "-means.pt")
     torch.save(channel_stds, str(stats_path) + "-stds.pt")
@@ -389,7 +410,7 @@ def pixelz_normalize(
 
     # save the statistics
     stats_path = Path(
-        os.path.join(out_path, "..", "stats", f"zscore-j{job_id}")
+        os.path.join(out_path, "..", "stats", f"zscore-j{job_id:03}")
     )
     torch.save(channel_means, str(stats_path) + "-means.pt")
     torch.save(channel_stds, str(stats_path) + "-stds.pt")
@@ -474,7 +495,14 @@ def local_zscore_normalize(
         data_path=out_path, split_test=False, outside_logger=logger
     )
 
-    out_path = str(out_path).strip("/") + "/"  # ensure trailing slash
+    # standardize out path
+    # check if path is absolute
+    if str(out_path)[0] == "/":
+        prefix = "/"
+    else:
+        prefix = ""
+    # add trailing slash to path if not already present for consistency
+    out_path = prefix + str(out_path).strip("/") + "/"
 
     # get the file extension for saving later
     extension = get_dataset_extension(data_path)
@@ -551,7 +579,14 @@ def local_minmax_normalize(
         data_path=out_path, split_test=False, outside_logger=logger
     )
 
-    out_path = str(out_path).strip("/") + "/"  # ensure trailing slash
+    # standardize out path
+    # check if path is absolute
+    if str(out_path)[0] == "/":
+        prefix = "/"
+    else:
+        prefix = ""
+    # add trailing slash to path if not already present for consistency
+    out_path = prefix + str(out_path).strip("/") + "/"
 
     # get the file extension for saving later
     extension = get_dataset_extension(data_path)
@@ -630,7 +665,14 @@ def local_minmax_extended_normalize(
         data_path=out_path, split_test=False, outside_logger=logger
     )
 
-    out_path = str(out_path).strip("/") + "/"  # ensure trailing slash
+    # standardize out path
+    # check if path is absolute
+    if str(out_path)[0] == "/":
+        prefix = "/"
+    else:
+        prefix = ""
+    # add trailing slash to path if not already present for consistency
+    out_path = prefix + str(out_path).strip("/") + "/"
 
     # get the file extension for saving later
     extension = get_dataset_extension(data_path)

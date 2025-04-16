@@ -1,13 +1,14 @@
-""" Common utility functions. """
+"""Common utility functions."""
 
 import datetime
 import os
-
 from collections.abc import Callable
+from math import log10, floor
 from pathlib import Path
 
 from dotenv import load_dotenv
-from numpy import ndarray, save as numpy_save
+from numpy import ndarray
+from numpy import save as numpy_save
 from psycopg import connect
 from torch.backends.mps import is_available as is_mps_available
 from torch.cuda import is_available as is_cuda_available
@@ -486,7 +487,7 @@ def get_dataset_id(data_path: Path | str) -> int:
     with connect(postgres_connection_string) as conn:
         with conn.cursor() as curs:
             curs.execute(
-                "SELECT id FROM datasets WHERE path = %s;", (str(data_path),)
+                "SELECT id FROM datasets WHERE dir = %s;", (str(data_path),)
             )
             res = curs.fetchone()
             if res:
@@ -496,3 +497,27 @@ def get_dataset_id(data_path: Path | str) -> int:
                 raise FileNotFoundError(f"No dataset found at {data_path}.")
 
     return dataset_id
+
+
+def round_to_sig_figs(num: float, sig_figs: int) -> float:
+    """
+    Returns the number represented with the
+    specified number of significant figures
+
+    Args:
+        num (float): the number to represent
+        sig_figs (int): number of significant figures to keep
+
+    Returns:
+        float: the number represented with the
+            specified number of significant digits
+    """
+    # handle num=0 case to avoid problems with log10
+    if num == 0:
+        return 0
+
+    # calculate power of 10 to shift the decimal point
+    power = sig_figs - 1 - floor(log10(abs(num)))
+
+    # multiply by 10^power, round, then divide by 10^power
+    return round(num * 10**power) / 10**power

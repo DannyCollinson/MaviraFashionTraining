@@ -5,12 +5,12 @@ Module defining the dataset class for Mavira's Classifier training.
 from pathlib import Path
 from typing import Any
 
-from torch import Tensor, ones_like, tensor  # pylint: disable=E0611
+from torch import Tensor, ones_like, tensor  # pylint: disable=E0611,W0611
 from torch.nn import Sequential
 from torch.utils.data import DataLoader
-from torchvision.tv_tensors import Image
 from torchvision.datasets import DatasetFolder
 from torchvision.transforms.v2 import Transform
+from torchvision.tv_tensors import Image
 
 from ..utils.constants import (
     DEFAULT_TRAIN_DATALOADER_PARAMS,
@@ -53,15 +53,12 @@ class ClassifierDataset(DatasetFolder):
                 specify a linear combination of uniform and balanced
                 weights; e.g., a value of 0.6 uses the formula
                 weights = 0.6 * balanced + (1 - 0.6) * uniform
-                (*): value can technically be outside the range [0, 1],
+                (*). Value can technically be outside the range [0, 1],
                 but values less than 0 create anti-balancing,
                 and values greater than 1 create over-balancing
         """
         # check that loss_weights_balancing_factor is in the range [0, 1]
-        assert (
-            loss_weights_balancing_factor >= 0
-            and loss_weights_balancing_factor <= 1
-        ), (
+        assert 0 <= loss_weights_balancing_factor <= 1, (
             "Value for loss_weights_balancing_factor must be in the range "
             f"[0, 1], got {loss_weights_balancing_factor}"
         )
@@ -100,7 +97,10 @@ class ClassifierDataset(DatasetFolder):
                 self.train_samples_per_label[label] = 0
             self.train_samples_per_label[label] += 1
         self.class_counts = tensor(
-            [self.train_samples_per_label[label] for _, label in self.samples]
+            [
+                self.train_samples_per_label[label]
+                for label in range(len(self.classes))
+            ]
         )
 
         # compute the loss weights
@@ -154,10 +154,11 @@ class ClassifierDataset(DatasetFolder):
 
 def make_training_dataloaders(
     train_data_path: Path | str,
-    transforms: Sequential | Transform | None = None,
     train_dataloader_params: dict[str, Any] | None = None,
+    train_transforms: Sequential | Transform | None = None,
     val_data_path: Path | str | None = None,
     val_dataloader_params: dict[str, Any] | None = None,
+    val_transforms: Sequential | Transform | None = None,
     loss_weights_balancing_factor: float = 0.0,
 ) -> tuple[
     ClassifierDataset, DataLoader, ClassifierDataset | None, DataLoader | None
@@ -168,17 +169,19 @@ def make_training_dataloaders(
 
     Args:
         train_data_path (Path | str): path to the training data
-        transforms (Sequential | Transform | None):
-            transforms to apply to the images
         train_dataloader_params (dict[str, Any] | None): parameters for
             creating the training dataloader. Defaults to None.
             Specified parameters will replace the default values.
+        train_transforms (Sequential | Transform | None): transforms to
+            apply to images in the training loop
         val_data_path (Path | str | None): path to the validation data.
             If None, the validation dataset will not be created.
             Defaults to None.
         val_dataloader_params (dict[str, Any] | None): parameters for
             creating the validation dataset. Defaults to None.
             Specified parameters will replace the default values.
+        val_transforms (Sequential | Transform | None): transforms to
+            apply to images during validation
         loss_weights_balancing_factor (float): the balancing
             factor for loss weighting
 
@@ -195,7 +198,7 @@ def make_training_dataloaders(
 
     train_dataset = ClassifierDataset(
         data_path=train_data_path,
-        transforms=transforms,
+        transforms=train_transforms,
         loss_weights_balancing_factor=loss_weights_balancing_factor,
     )
 
@@ -215,7 +218,7 @@ def make_training_dataloaders(
     # create validation dataset, including transforms if specified
     val_dataset = ClassifierDataset(
         data_path=val_data_path,
-        transforms=transforms,
+        transforms=val_transforms,
         loss_weights_balancing_factor=loss_weights_balancing_factor,
     )
 

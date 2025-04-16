@@ -14,7 +14,15 @@ mkdir -p ./data/classifier
 mkdir -p ./data/mae
 mkdir -p ./checkpoints
 mkdir -p ./checkpoints/classifier
+mkdir -p ./checkpoints/classifier/models
+mkdir -p ./checkpoints/classifier/optimizers
+mkdir -p ./checkpoints/classifier/schedulers
+mkdir -p ./checkpoints/classifier/scalers
 mkdir -p ./checkpoints/mae
+mkdir -p ./checkpoints/mae/models
+mkdir -p ./checkpoints/mae/optimizers
+mkdir -p ./checkpoints/mae/schedulers
+mkdir -p ./checkpoints/mae/scalers
 mkdir -p ./logs
 mkdir -p ./logs/data_processing
 mkdir -p ./logs/train_runs

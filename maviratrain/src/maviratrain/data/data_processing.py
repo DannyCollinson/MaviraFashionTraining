@@ -6,29 +6,21 @@ and generating train/val/test splits.
 import os
 import random
 import re
-
 from collections.abc import Callable
 from pathlib import Path
 from subprocess import run
 
 import torch
-from numpy import asarray, load as np_load
+from numpy import asarray
+from numpy import load as np_load
 from PIL import Image
 from psycopg import connect
 from torchvision.io import ImageReadMode, decode_image
 from torchvision.transforms.v2 import InterpolationMode, Resize
 
-from .normalization import (
-    minmax_extended_normalize,
-    minmax_normalize,
-    pixelz_normalize,
-    zscore_normalize,
-    local_minmax_normalize,
-    local_minmax_extended_normalize,
-    local_zscore_normalize,
-)
 from ..utils.general import (
     get_data_processing_job_id,
+    get_dataset_id,
     get_logger,
     get_postgres_connection_string,
     get_save_function,
@@ -36,6 +28,15 @@ from ..utils.general import (
     np_save,
 )
 from ..utils.registration.register_data import register_dataset
+from .normalization import (
+    local_minmax_extended_normalize,
+    local_minmax_normalize,
+    local_zscore_normalize,
+    minmax_extended_normalize,
+    minmax_normalize,
+    pixelz_normalize,
+    zscore_normalize,
+)
 
 # set up logger
 logger = get_logger(
@@ -217,7 +218,12 @@ def resize_images(
     """
     # specify default out_path if not given
     job_id = get_data_processing_job_id(new=False)
-    out_path = Path(str(data_path).removesuffix("/") + "-r" + str(job_id))
+    out_path = Path(
+        str(data_path).removesuffix("/")
+        + "-r"
+        + "0" * (3 - len(str(job_id)))
+        + str(job_id)
+    )
 
     logger.info_(
         "Resizing images at %s to size %s and saving at %s...",
@@ -288,8 +294,8 @@ def resize_images(
             if deduplicate:
                 im_hash = hash(asarray(im).tobytes())
 
-            # convert to float before resizing for accuracy
-            im = im.to(dtype=torch.float32)
+            # was previously converting to float first
+            # but PyTorch recommends using default uint8 for resizing
             im = resize(im)
 
             # get image subpath by removing data_path from filepath
@@ -355,7 +361,12 @@ def train_val_test(
     """
     # specify default out_path if not given
     job_id = get_data_processing_job_id(new=False)
-    out_path = Path(str(data_path).removesuffix("/") + "-s" + str(job_id))
+    out_path = Path(
+        str(data_path).removesuffix("/")
+        + "-s"
+        + "0" * (3 - len(str(job_id)))
+        + str(job_id)
+    )
 
     logger.info_(
         "Splitting data at %s into train/val/test sets at %s "
@@ -479,7 +490,12 @@ def normalize_data(
     # specify default out_path if not given
     job_id = get_data_processing_job_id(new=False)
     if out_path is None or out_path == "None":
-        out_path = Path(str(data_path).removesuffix("/") + "-n" + str(job_id))
+        out_path = Path(
+            str(data_path).removesuffix("/")
+            + "-n"
+            + "0" * (3 - len(str(job_id)))
+            + str(job_id)
+        )
 
     # make sure out_path directory is in the "data" directory
     assert "/data/" in str(out_path), (
@@ -488,7 +504,7 @@ def normalize_data(
     )
 
     # create the out_path directory if it doesn't exist
-    if not os.path.exists(out_path):
+    if not os.path.exists(out_path) and method != "none":
         os.mkdir(out_path)
         logger.debug_("Created output directory %s", out_path)
 
@@ -515,8 +531,20 @@ def normalize_data(
                 logger.error_("%s", message)
                 raise ValueError(message)
 
+    # skip normalization if needed
+    if method == "none":
+        logger.info_(
+            "Normalization option 'none' provided, skipping normalization"
+        )
+        return (
+            job_id,
+            get_dataset_id(data_path=data_path),
+            Path(data_path),
+            None,
+        )
+
     logger.info_(
-        "Beginning normalization of data at %s using %s and saving at %s...",
+        "Beginning normalization of data at %s using '%s' and saving at %s...",
         data_path,
         method,
         out_path,
@@ -588,7 +616,12 @@ def convert_to_jpeg(
     """
     # specify default out_path if not given
     job_id = get_data_processing_job_id(new=False)
-    out_path = Path(str(data_path).removesuffix("/") + "-c" + str(job_id))
+    out_path = Path(
+        str(data_path).removesuffix("/")
+        + "-c"
+        + "0" * (3 - len(str(job_id)))
+        + str(job_id)
+    )
 
     logger.info_(
         "Converting data at %s to JPEG at %s using compression quality %s",
@@ -629,10 +662,12 @@ def convert_to_jpeg(
         for filename in files:
             filepath = os.path.join(cur_dir, filename)
             if filepath.endswith(".pt"):
+                old_extension = ".pt"
                 im = torch.load(
                     filepath, map_location="cpu", weights_only=True
                 )
             elif filepath.endswith(".npy"):
+                old_extension = ".npy"
                 im = torch.from_numpy(np_load(filepath))
             else:
                 message = (
@@ -648,7 +683,7 @@ def convert_to_jpeg(
             file_subpath = file_subpath.removeprefix(str(data_path))
             # create new filepath as outpath/subpath
             new_filepath = os.path.join(out_path, file_subpath)
-            new_filepath = new_filepath.replace(".pt", ".jpg")
+            new_filepath = new_filepath.replace(old_extension, ".jpg")
             im = im.permute(1, 2, 0).numpy()
             Image.fromarray(im).save(
                 new_filepath, optimize=True, keep_rgb=True, quality=quality
@@ -686,7 +721,12 @@ def convert_to_numpy(
     """
     # specify default out_path if not given
     job_id = get_data_processing_job_id(new=False)
-    out_path = Path(str(data_path).removesuffix("/") + "-c" + str(job_id))
+    out_path = Path(
+        str(data_path).removesuffix("/")
+        + "-c"
+        + "0" * (3 - len(str(job_id)))
+        + str(job_id)
+    )
 
     logger.info_(
         "Converting data at %s to NumPy array at %s", data_path, out_path
@@ -776,7 +816,12 @@ def convert_to_pytorch(
     """
     # specify default out_path if not given
     job_id = get_data_processing_job_id(new=False)
-    out_path = Path(str(data_path).removesuffix("/") + "-c" + str(job_id))
+    out_path = Path(
+        str(data_path).removesuffix("/")
+        + "-c"
+        + "0" * (3 - len(str(job_id)))
+        + str(job_id)
+    )
 
     logger.info_(
         "Converting data at %s to PyTorch tensor at %s", data_path, out_path

@@ -1,10 +1,3 @@
-# Important
-
-This is a copy of the Mavira FashionTraining repository written solely by Danny Collinson for the purposes of providing a personal code sample. No permissions are granted to anyone outside of Mavira except for those outlined in GitHub's Terms of Use.
-
-This repository is a work in progress and will be updated periodically as changes to the parent repository are made.
-
-
 # Training your Personal Fashion Stylist
 
 The code here is for training the models used for the AI fashion assistant. It includes the `maviratrain` package. The guide below will guide you in setting up your system and environment to get started training your own models.
@@ -36,24 +29,24 @@ Follow the steps below in order and you should be all set up. If you need help a
 ### Python Environment Setup
 The following instructions  will help you set up the correct Python environment. The end of this section contains an all-in-one command for creating, activating, and setting up the environment that will work for most systems.
 1. Run `micromamba create -n maviratrain && micromamba activate maviratrain` to create and activate a Python environment for training.
-2. Run `micromamba install fsspec pytest pytest-cov ipykernel seaborn python-dotenv sympy=1.13.1 numpy` and press `Enter` when prompted to install many of the necessary packages.
-3. Go to https://pytorch.org/ to get the command to run for your system for installing the PyTorch Preview release (You can remove `torchaudio` from the command). For a Linux or Windows machine using CUDA version 12.6, the command is `pip install --pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu126`, and for different CUDA versions, just change the last three characters.
-4. Run `pip install psycopg[binary] torcheval` to install `psycopg` for interacting with our PostgreSQL database from Python and `torcheval` for computing training metrics.
+2. Run `micromamba install fsspec pytest pytest-cov ipykernel seaborn python-dotenv sympy numpy` and press `Enter` when prompted to install many of the necessary packages.
+3. Go to https://pytorch.org/ to get the command to run for your system for installing the PyTorch Preview release (You can remove `torchaudio` from the command). For a Linux or Windows machine using CUDA version 12.8, the command is `pip install --pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu128`, and for different CUDA versions, just change the last three characters.
+4. Run `pip install psycopg[binary] torcheval pytorch-focalloss` to install `psycopg` for interacting with our PostgreSQL database from Python and `torcheval` for computing training metrics.
 5. Run `micromamba clean --all --yes` to clean up after the `micromamba` installation process.
 6. Run `python -m ipykernel install --user --name maviratrain` to create an IPython kernel for use in notebooks.
-7. Run `python -m pip install -e maviratrain` to install an editable version of our training package that updates as you make changes.
+7. Run `pip install -e maviratrain` to install an editable version of our training package that updates as you make changes.
 8. Run `pip check` to have `pip` look for any broken dependencies in the `maviratrain` environment. If there are, resolve them if the solution is obvious, or contact Danny for support.
 
 As an alternative to the above, you can run a variation of the following command that depends on your system. Most notably, make sure that the fourth line of the command is correct for your system (You can go to https://pytorch.org/ and input your details to get the right command for you):
 ```
 micromamba create -n maviratrain \
 && micromamba activate maviratrain \
-&& micromamba install --yes fsspec pytest pytest-cov ipykernel seaborn python-dotenv sympy=1.13.1 numpy \
-&& pip install --pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu126 \
-&& pip install psycopg[binary] torcheval \
+&& micromamba install --yes fsspec pytest pytest-cov ipykernel seaborn python-dotenv sympy numpy \
+&& pip install --pre torch torchvision --index-url https://download.pytorch.org/whl/nightly/cu128 \
+&& pip install psycopg[binary] torcheval pytorch-focalloss \
 && micromamba clean --all --yes \
 && python -m ipykernel install --user --name maviratrain \
-&& python -m pip install -e maviratrain \
+&& pip install -e maviratrain \
 && pip check
 ```
 
@@ -175,7 +168,7 @@ The first step is to run `bash ./scripts/initial_setup.sh` from the main directo
 1. Download the dataset to your local machine from the mavira.master Google Drive. From the My Drive page, you can click the download button at the end of the aesthetic_outfit_pics folder to download it. This will download everything inside the folder as a zip file, which may take a while. You can also download each subfolder individually and place them into a directory of zip files if desired.
 2. If training locally, you can move this file (or directory) into the `./data/classifier` directory (or `./data/mae` if training a Masked AutoEncoder, or MAE) of the FashionTraining project. If using a Google Cloud VM, follow the instructions at https://cloud.google.com/compute/docs/instances/transfer-files#transfergcloud to use the gcloud CLI to upload the zip file that you just downloaded from the Google Drive to the `./data/classifier` directory (or `./data/mae`) of the FashionTraining project. The `./data/classifier` and `./data/mae` directories should have been created when running the `initial_setup.sh` script in the __Getting Started__ intro. Note that changing the name of a zipped directory while it is zipped will cause problems. This is because when unzipped, the name reverts to the original and breaks the unzipping script.
 3. Open up the notebook `data_processing.ipynb` found in the `./notebooks` directory of the FashionTraining project. Logs for most data processing tasks will be placed in the `./logs/data_processing` directory before being zipped and moved to the `./logs/archive/data_processing` directory once processing has terminated successfully. Important notices and warnings will also be printed to the notebook's console.
-4. Follow the instructions in the first code cell to unzip the dataset into the `data` directory so that it is ready for further processing.
+4. Follow the instructions in the first code cell to unzip the dataset into the `data` directory so that it is ready for further processing. If you are using a Google Cloud VM, make sure that `unzip` is installed first; on Debian, run `sudo apt install zip unzip` before running the first cell.
 5. Follow the instructions in the second code cell to register the dataset in the PostgreSQL database.
 6. Running the third code cell prints help info for the data processing script; info is also provided in the following cell.
 7. Follow the instructions in the fourth code cell to run the data processing pipeline. Depending on what processing is being done and the size of the dataset, this may take up to about an hour. Once this is completed, the data is ready for training.

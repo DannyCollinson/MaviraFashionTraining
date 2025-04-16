@@ -32,3 +32,6 @@ classifiers = [
 Homepage = "https://maviraai.com"
 Repository = "https://github.com/MaviraAI/FashionTraining"
 Issues = "https://github.com/MaviraAI/FashionTraining/issues"
+
+[tool.isort]
+profile = "black"

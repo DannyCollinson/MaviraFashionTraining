@@ -38,9 +38,14 @@ def get_dataset_id(data_path: Path | str) -> int:
     Returns:
         int: the ID of the dataset in the database
     """
-    # add trailing slash to data path because it is expected in the database
-    data_path = str(data_path).strip("/") + "/"
-
+    # standardize data path
+    # check if path is absolute
+    if str(data_path)[0] == "/":
+        prefix = "/"
+    else:
+        prefix = ""
+    # add trailing slash to data path if not already present for consistency
+    data_path = prefix + str(data_path).strip("/") + "/"
     logger.info_("Getting dataset ID for dataset at %s...", data_path)
 
     # connect to database to get dataset ID
@@ -208,8 +213,14 @@ def register_dataset(
     Returns:
         int: the ID of the newly registered dataset in the database
     """
+    # standardize data path
+    # check if path is absolute
+    if str(data_path)[0] == "/":
+        prefix = "/"
+    else:
+        prefix = ""
     # add trailing slash to data path if not already present for consistency
-    data_path = str(data_path).strip("/") + "/"
+    data_path = prefix + str(data_path).strip("/") + "/"
 
     logger.info_("Registering dataset at %s in database...", data_path)
 

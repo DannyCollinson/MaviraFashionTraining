@@ -535,7 +535,7 @@ def run(arg: argparse.Namespace) -> dict[str, Any]:
                         data_path=use_path, out_path=arg.converted
                     )
                 )
-            elif arg.final_format == "jpeg":
+            elif arg.final_format == "jpeg" or arg.final_format == "jpg":
                 _, converted_dataset_id, converted_path = (
                     data_processing.convert_to_jpeg(
                         data_path=use_path,
@@ -571,7 +571,7 @@ def run(arg: argparse.Namespace) -> dict[str, Any]:
     assert returned_job_id == job_id, "Database returned unexpected job ID"
 
     # zip up logs to save space
-    log_archive_path = f"../logs/archive/data_processing/j{job_id}"
+    log_archive_path = f"../logs/archive/data_processing/j{job_id:03}"
     logger.info_("Logs zipped and moved to %s", log_archive_path + ".zip")
 
     logger.info_("Finished running job %s!", job_id)
